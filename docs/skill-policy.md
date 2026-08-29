@@ -4,7 +4,7 @@ What has to be true before a plugin is installable by the org.
 
 ## The gate
 
-Every PR touching `plugins/**` is scanned by [NVIDIA SkillSpector](https://github.com/NVIDIA/SkillSpector),
+Every PR touching `plugins/` or the marketplace manifest is scanned by [NVIDIA SkillSpector](https://github.com/NVIDIA/SkillSpector),
 pinned to `v2.11.0` in [`skill-scan.yml`](../.github/workflows/skill-scan.yml). One scan per changed
 plugin, so one bad plugin does not mask a clean one.
 
@@ -13,7 +13,7 @@ SkillSpector emits a 0–100 risk score. We adopt its default bands as the merge
 | Score | Severity | Recommendation | Exit | Our policy |
 |-------|----------|----------------|------|------------|
 | 0–20 | LOW | `SAFE` | 0 | Merge (auto-merge armed) |
-| 21–50 | MEDIUM | `CAUTION` | 0 | Merge, findings visible in code scanning |
+| 21–50 | MEDIUM | `CAUTION` | 0 | Merge; findings reported, not blocking |
 | 51–80 | HIGH | `DO_NOT_INSTALL` | 1 | **Blocked** |
 | 81–100 | CRITICAL | `DO_NOT_INSTALL` | 1 | **Blocked** |
 | — | — | scanner error | 2 | **Blocked** — we fail closed |

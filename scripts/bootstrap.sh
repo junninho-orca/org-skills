@@ -9,6 +9,7 @@
 set -euo pipefail
 
 ORG=""; REPO=""; TEAM=""; SEC_TEAM=""; DOMAIN=""; APPLY=0; PROTECT=0
+MODEL=""; CTX=""; MAXOUT=""
 
 usage() {
   cat <<'USAGE'
@@ -22,6 +23,11 @@ Options:
   --team TEAM            Team owning plugins       (default: platform-team)
   --security-team TEAM   Team owning gate + policy (default: security)
   --email-domain DOMAIN  Replaces example.com in manifests
+  --model ID             Model you will configure, e.g. claude-sonnet-4-6.
+                         Replaces the token-budget registry entry, so the
+                         scanner stops assuming a 128k context for your model.
+  --context-length N     Context window for --model   (default 200000)
+  --max-output N         Max output tokens for --model (default 8192)
   --apply                Write the changes (default: dry-run)
   --protect              Also apply branch protection and enable auto-merge
                          (needs gh auth, and the repo must already exist)
@@ -31,7 +37,8 @@ Examples:
   scripts/bootstrap.sh --org acme --repo skills                  # preview
   scripts/bootstrap.sh --org acme --repo skills --apply
   scripts/bootstrap.sh --org acme --repo skills --apply --protect \
-      --team platform --security-team appsec --email-domain acme.com
+      --team platform --security-team appsec --email-domain acme.com \
+      --model claude-sonnet-4-6 --context-length 200000 --max-output 64000
 
 For a personal account with no teams, pass --team and --security-team as your
 username; the script will write @username instead of @org/team.
@@ -45,6 +52,9 @@ while [ $# -gt 0 ]; do
     --team) TEAM="$2"; shift 2 ;;
     --security-team) SEC_TEAM="$2"; shift 2 ;;
     --email-domain) DOMAIN="$2"; shift 2 ;;
+    --model) MODEL="$2"; shift 2 ;;
+    --context-length) CTX="$2"; shift 2 ;;
+    --max-output) MAXOUT="$2"; shift 2 ;;
     --apply) APPLY=1; shift ;;
     --protect) PROTECT=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -122,6 +132,33 @@ if not apply_:
     print("Re-run with --apply to write them.")
 PY
 
+REG=.github/skillspector-model-registry.yaml
+if [ -n "$MODEL" ]; then
+  CTX="${CTX:-200000}"; MAXOUT="${MAXOUT:-8192}"
+  echo
+  echo "model registry: $MODEL (context $CTX, max output $MAXOUT)"
+  if [ "$APPLY" -eq 1 ]; then
+    cat > "$REG" <<REGEOF
+# Token-budget metadata for models absent from SkillSpector's bundled registries.
+#
+# Without an entry here SkillSpector assumes a 128000-token context. That is not
+# only noisy: under-declaring the window can truncate a large skill during
+# semantic analysis, and the unanalysed tail is where something would hide.
+#
+# Verify these numbers against your provider's documentation. A wrong value is
+# worse than no file at all.
+
+models:
+  $MODEL:
+    context_length: $CTX
+    max_output_tokens: $MAXOUT
+REGEOF
+    echo "  wrote $REG"
+  else
+    echo "  would rewrite $REG"
+  fi
+fi
+
 if [ "$PROTECT" -eq 1 ]; then
   [ "$APPLY" -eq 1 ] || { echo; echo "error: --protect requires --apply" >&2; exit 2; }
   command -v gh >/dev/null || { echo "error: gh CLI not found" >&2; exit 2; }
@@ -158,10 +195,13 @@ Remaining steps this script cannot do for you:
 
   1. Replace the example plugins under plugins/ with your own, and update
      .claude-plugin/marketplace.json to match.
-  2. Optional - enable semantic analysis:
-       gh variable set SKILLSPECTOR_PROVIDER --body openai_compatible
-       gh secret   set SKILLSPECTOR_COMPAT_API_KEY
-     Full provider matrix: docs/skill-policy.md
+  2. Optional - enable semantic analysis. Any provider works; static analysis
+     needs no credentials at all:
+       gh variable set SKILLSPECTOR_PROVIDER --body <provider>
+       gh variable set SKILLSPECTOR_MODEL    --body <model-id>
+       gh secret   set <PROVIDER_CREDENTIAL>
+     Full matrix: docs/skill-policy.md. If you configure a model, re-run this
+     script with --model so its token budget is declared.
   3. plugins/incident-response/mcp.json points at https://mcp.example.com -
      an illustrative endpoint, left alone deliberately rather than rewritten
      to a host that would not resolve. Change it or drop the plugin.

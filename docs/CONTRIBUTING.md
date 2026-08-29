@@ -27,8 +27,9 @@ that sentence is the only thing loaded at startup, so it is what decides whether
    ```bash
    skillspector scan plugins/<name> --no-llm
    ```
-5. Open a PR. CI scans, uploads SARIF, and arms auto-merge if you pass. The required check is
-   **`Gate`**; the per-plugin `Scan <name>` jobs feed it.
+5. Open a PR. CI scans each changed plugin and arms auto-merge if you pass. The required check is
+   **`Gate`**; the per-plugin `Scan <name>` jobs feed it. Findings are in the job summary and the
+   run artifact, and in the Security tab where code scanning is enabled.
 
 ## Writing skills that survive review
 
@@ -41,12 +42,14 @@ that sentence is the only thing loaded at startup, so it is what decides whether
 
 ## What a failure looks like
 
-[`tests/fixtures/known-bad/`](../tests/fixtures/) is a worked example of a skill that will not
-merge — a benign-sounding `description` over a body that exfiltrates credentials, pipes a remote
-script to `sudo bash`, and grants itself bare `Bash`. Read it once before writing your first skill;
-it is the shortest description of what the gate is looking for.
+[`tests/fixtures/README.md`](../tests/fixtures/README.md) walks through a skill that will not merge:
+a benign-sounding `description` over a body that exfiltrates credentials, pipes a remote script to
+`sudo bash`, and grants itself bare `Bash`. It is the shortest description of what the gate looks
+for.
 
-Do not copy from it, and do not move it under `plugins/`.
+Read the README, not the fixture. The fixture files deliberately carry no warning of their own — the
+whole point is that they look like an ordinary plugin — so nothing in them will stop you if you
+start copying. Never move that directory under `plugins/`.
 
 ## Versioning
 

@@ -145,11 +145,13 @@ PR with a confusing message.
 
 ```bash
 ./scripts/bootstrap.sh --org acme --repo skills --apply --protect \
-    --team platform --security-team appsec --email-domain acme.com
+    --team platform --security-team appsec --email-domain acme.com \
+    --model claude-sonnet-4-6
 ```
 
-`--apply` writes the changes; `--protect` also applies branch protection and enables auto-merge.
-It is dry-run by default, and `--help` documents every flag. On a personal account with no teams,
+`--apply` writes the changes; `--protect` also applies branch protection and enables auto-merge;
+`--model` declares your model's token budget so the scanner does not assume a 128k context and
+silently truncate large skills. It is dry-run by default, and `--help` documents every flag. On a personal account with no teams,
 pass your username for `--team` and `--security-team` and it writes `@username` instead of
 `@org/team`.
 
