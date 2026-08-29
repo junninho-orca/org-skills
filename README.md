@@ -65,17 +65,41 @@ Only the inverted assertion proves it can still find anything at all. A bad pin 
 degraded ruleset passes everything, with no visible symptom, and every `PASS` here becomes
 meaningless. Auto-merge depends on it.
 
-### Verified, not asserted
+### Verified on every build, not asserted
 
-Latest run on `main`:
+This is real output from the `gate-selftest` job, not a description of it. Every push to `main`
+regenerates it — see the latest under
+[Actions](https://github.com/junninho-orca/org-skills/actions/workflows/skill-scan.yml), or download
+the `gate-selftest` artifact from any run.
 
-| Target | Result |
-|--------|--------|
-| `tests/fixtures/known-bad` | **CRITICAL → DO NOT INSTALL** (gate blocks) |
-| `plugins/dev-workflow` | SAFE |
-| `plugins/incident-response` | SAFE |
+```
+# SkillSpector Security Report
+**Source:** tests/fixtures/known-bad
 
-The fixture is caught on static analysis alone, before any LLM stage.
+| Metric         | Value           |
+|----------------|-----------------|
+| Score          | 100/100         |
+| Severity       | CRITICAL        |
+| Recommendation | DO NOT INSTALL  |
+
+## Issues (19)
+### 🔴 HIGH: P1   Instruction Override          skills/repo-doctor/SKILL.md:32   confidence 80%
+### 🔴 HIGH: YR1  YARA agent_skill_destructive_autonomous_actions
+### 🔴 HIGH: YR4  YARA agent_skill_prompt_injection_hidden_instructions
+### 🔴 HIGH: TM1  Credential Access             ×5
+### 🔴 HIGH: PE3  Sudo/Root Execution           ×4
+### 🔴 HIGH: SC2  External Script Fetching      ×2
+### 🔴 HIGH: TM2  External Transmission
+### 🟡 MED:  PE2  Chaining Abuse                ×2
+### 🟡 MED:  E1   Tool Parameter Abuse          ×2
+```
+
+Exit code `1` — the gate blocks. In the same run, `dev-workflow` and `incident-response` both
+return `SAFE`.
+
+All 19 findings come from **static analysis alone**, with every semantic analyzer skipped for a
+missing API key. The LLM stage is an enhancement here, not a dependency: the gate holds without
+credentials of any kind.
 
 ## Layout
 
