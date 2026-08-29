@@ -268,9 +268,40 @@ jobs:
           path: selftest.md
           retention-days: 90
 
+  gate:
+    # Single fixed-name check for branch protection to require. The scan jobs are
+    # a matrix, so their names vary with the plugin set - requiring them by name
+    # would silently not cover a newly added plugin. This job's name never
+    # changes, so it covers every plugin for all time.
+    name: Gate
+    needs: [discover, scan, gate-selftest]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every scan and the self-test to have passed
+        env:
+          DISCOVER: ${{ needs.discover.result }}
+          SCAN: ${{ needs.scan.result }}
+          SELFTEST: ${{ needs['gate-selftest'].result }}
+        run: |
+          set -euo pipefail
+          echo "discover=$DISCOVER  scan=$SCAN  gate-selftest=$SELFTEST"
+
+          fail=0
+          [ "$DISCOVER" = "success" ] || { echo "::error::discover did not succeed ($DISCOVER)"; fail=1; }
+          # 'skipped' is legitimate: a PR touching no plugin has nothing to scan.
+          case "$SCAN" in
+            success|skipped) ;;
+            *) echo "::error::one or more plugin scans did not pass ($SCAN)"; fail=1 ;;
+          esac
+          # Never optional. If the gate cannot prove it still blocks, nothing merges.
+          [ "$SELFTEST" = "success" ] || { echo "::error::gate self-test did not pass ($SELFTEST)"; fail=1; }
+
+          [ "$fail" -eq 0 ] && echo "Gate passed." || exit 1
+
   automerge:
     name: Arm auto-merge
-    needs: [discover, scan, gate-selftest]
+    needs: [gate]
     # `needs.gate-selftest` must use bracket syntax: a hyphen in a property
     # dereference is parsed as subtraction by the expression engine.
     # `scan` is legitimately skipped when a PR touches no plugin (e.g. fixtures
@@ -278,8 +309,7 @@ jobs:
     # self-test is not optional and must be 'success'.
     if: >-
       github.event_name == 'pull_request' &&
-      (needs.scan.result == 'success' || needs.scan.result == 'skipped') &&
-      needs['gate-selftest'].result == 'success' &&
+      needs.gate.result == 'success' &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest

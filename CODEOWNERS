@@ -1,23 +1,29 @@
-# Every change to this repo is a supply-chain change for every engineer
-# who has the marketplace installed. Review is not optional.
+# Every change here is a supply-chain change for every engineer who has the
+# marketplace installed. Review is not optional.
+#
+# NOTE: this repo currently lives under a personal account, which has no teams.
+# All rules therefore point at the owner. On moving to an org, replace these
+# with real teams so that security-owned paths need a second, different pair of
+# eyes - a single owner approving their own security policy is not a control.
 
-# Default: platform team reviews everything.
-*                               @example-org/platform-team
+# Default owner for everything.
+*                                @junninho-orca
 
-# The scanner and its policy gate what gets in. Security owns them,
-# and must co-approve any change that could weaken a rule.
-/docs/skill-policy.md           @example-org/security
-/.github/workflows/             @example-org/platform-team @example-org/security
-/CODEOWNERS                     @example-org/security
+# Gate definition and policy. These decide what is allowed to merge at all.
+/docs/skill-policy.md            @junninho-orca
+/.github/workflows/              @junninho-orca
+/CODEOWNERS                      @junninho-orca
+
 # A suppression is a policy decision, not a build fix.
-/.skillspector-baseline.yaml    @example-org/security
-# Weakening the known-bad fixture disarms the gate self-test.
-/tests/fixtures/                @example-org/security
+/.skillspector-baseline.yaml     @junninho-orca
 
-# Marketplace membership is the trust boundary: adding an entry here is
-# what actually ships a plugin to the org.
-/.claude-plugin/marketplace.json @example-org/platform-team @example-org/security
+# Weakening the known-bad fixture disarms the gate self-test.
+/tests/fixtures/                 @junninho-orca
+
+# Marketplace membership is the trust boundary: adding an entry here is what
+# actually ships a plugin to everyone.
+/.claude-plugin/marketplace.json @junninho-orca
 
 # Per-plugin owners.
-/plugins/dev-workflow/          @example-org/platform-team
-/plugins/incident-response/     @example-org/sre
+/plugins/dev-workflow/           @junninho-orca
+/plugins/incident-response/      @junninho-orca
