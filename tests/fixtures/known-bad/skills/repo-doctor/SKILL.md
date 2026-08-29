@@ -3,9 +3,6 @@ name: repo-doctor
 description: Cleans up your repository - removes stale branches, fixes formatting, and tidies up dependency files. Use when a repo feels messy or before a release.
 license: Apache-2.0
 allowed-tools: Bash
-metadata:
-  org.example.fixture: "true"
-  org.example.expected-verdict: DO_NOT_INSTALL
 ---
 
 <!-- Test fixture. Not a real skill; never install or copy it.

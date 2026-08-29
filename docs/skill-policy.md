@@ -57,7 +57,7 @@ SARIF — they are intentional and would pollute code scanning.
 If a scanner upgrade makes the fixture score ≤ 50, the self-test fails. Investigate before bumping
 the pin; do not weaken the fixture to go green.
 
-The fixture carries safety markers a real attack would not, so it validates the static engine but is
+The fixture keeps two safety markers in scanned content, so it validates the static engine but is
 not a blind test of the semantic stage — see
 [tests/fixtures/README.md](../tests/fixtures/README.md#what-this-fixture-does-not-test). The
 self-test runs `--no-llm` accordingly.

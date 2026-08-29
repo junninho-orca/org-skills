@@ -45,23 +45,39 @@ The frontmatter `description` promises repo cleanup. That gap between stated pur
 body is the realistic shape of a malicious contribution, and the hardest thing for a human skimming
 a diff to catch.
 
+## What reaches the semantic analyzer
+
+Worth being precise about, because it decides what this fixture can and cannot prove.
+
+SkillSpector's LLM analyzers build a prompt of the form `## File: <path>` followed by the
+line-numbered file content
+([`llm_analyzer_base.py`](https://github.com/NVIDIA/SkillSpector/blob/v2.11.0/src/skillspector/llm_analyzer_base.py)).
+The path is **relative to the scan root**, so it reads `skills/repo-doctor/SKILL.md` — the
+`known-bad` directory name is not in the prompt.
+
+| Marker | Reaches the LLM? |
+|---|---|
+| `tests/fixtures/known-bad/` directory name | **No** — outside the relative path |
+| This README | **No** — above the scan target |
+| `SKILL.md` frontmatter and body | **Yes** — it is file content |
+| `plugin.json` `description` / `keywords` | **Yes** — it is file content |
+
+The frontmatter previously carried `org.example.expected-verdict: DO_NOT_INSTALL`. That handed the
+analyzer the answer outright and has been removed; it was bookkeeping, and protected no one.
+
 ## What this fixture does not test
 
-It carries safety markers a real attack would not: a `known-bad` directory name, a `plugin.json`
-description saying it is a fixture, and an in-file comment. Those keep it safe to hold in a public
-repository, and they also tell a reader what it is.
+Two markers still live in scanned content: the `plugin.json` description, and the comment at the top
+of `SKILL.md`. Both exist so that anyone who copies a file out of this directory is warned by the
+file itself.
 
-So this is a valid test of the **static** engine — YARA rules and pattern matchers do not read
-intent — but it is **not a blind test of the semantic stage**, which would see those markers and
-could score them rather than the behavior.
+They also mean this is **not a blind test of the semantic stage** — an analyzer sees them. It is a
+sound test of the **static** engine, which matches patterns and does not read intent, and that is
+what `gate-selftest` asserts by running `--no-llm`.
 
-That is one reason `gate-selftest` runs `--no-llm`, alongside keeping the check deterministic. A
-fixture cannot be both clearly labelled for safety and blind for evaluation; this repo chooses
-labelled, and confines the assertion to the engine the labels cannot influence.
-
-Step headings previously named the OWASP category inline (`## Step 1 ... (AST08: credential
-access)`). That went further than a safety marker — it named the rule that should fire — so it now
-lives in the table above instead. Removing it did not change the score.
+Making it blind would mean deleting those two markers, leaving the directory name and this README as
+the only warnings — safe for a reader browsing the repo, weaker for someone who copies a lone file.
+That trade has not been taken. If you take it, say so here.
 
 ## Keeping it honest
 
