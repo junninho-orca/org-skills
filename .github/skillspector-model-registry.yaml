@@ -1,0 +1,19 @@
+# Token-budget metadata for models absent from SkillSpector's bundled registries.
+#
+# SkillSpector reads this when SKILLSPECTOR_MODEL_REGISTRY points at it, and
+# falls back to a conservative 128000-token context otherwise. That fallback is
+# not merely noisy: under-declaring the window can truncate a large skill during
+# semantic analysis, which in a security scanner is a silent coverage gap - the
+# unanalysed tail is exactly where something would hide.
+#
+# The openai_compatible provider bundles no Gemini entries, since it targets any
+# OpenAI-protocol endpoint. Declare what you use.
+#
+# Verify values against your provider's docs before trusting them; model limits
+# change, and a wrong number here is worse than no file at all.
+
+models:
+  # https://ai.google.dev/gemini-api/docs/latest-model
+  gemini-3.7-flash:
+    context_length: 1048576
+    max_output_tokens: 65536

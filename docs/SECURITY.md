@@ -122,6 +122,39 @@ echo "exit=$?"   # expect 1
 `exit=1` means the whole chain works. A credentials error means the key or endpoint is wrong; a
 model error means the model id is not valid for that endpoint.
 
+### Model token budgets
+
+Each provider bundles a `model_registry.yaml` of context and output-token metadata. A model absent
+from it falls back to a conservative **128000**-token context — true for any Gemini model under
+`openai_compatible`, which targets arbitrary OpenAI-protocol endpoints and bundles no Gemini
+entries.
+
+That fallback is not just log noise. Under-declaring the window can truncate a large skill during
+semantic analysis, and in a security scanner the unanalysed tail is exactly where something would
+hide. The scan still passes, so the coverage gap is silent.
+
+[`.github/skillspector-model-registry.yaml`](../.github/skillspector-model-registry.yaml) declares
+the real limits, and the workflow points `SKILLSPECTOR_MODEL_REGISTRY` at it. **Add an entry for
+whatever model you configure**, and verify the numbers against your provider's documentation —
+model limits change, and a wrong value there is worse than no file at all.
+
+### Verify before touching CI
+
+Run the fixture locally. Fastest way to confirm credentials, endpoint, and model id work together,
+and it exercises the same path CI takes. Substitute your own provider's variables:
+
+```bash
+export SKILLSPECTOR_PROVIDER=openai_compatible
+export SKILLSPECTOR_COMPAT_API_KEY='<your-key>'
+export SKILLSPECTOR_COMPAT_BASE_URL='<your-endpoint>'
+export SKILLSPECTOR_MODEL='<your-model>'
+skillspector scan tests/fixtures/known-bad
+echo "exit=$?"   # expect 1
+```
+
+`exit=1` means the whole chain works. A credentials error means the key or endpoint is wrong; a
+model error means the model id is not valid for that endpoint.
+
 ### Optional: model token budgets
 
 Each provider bundles a `model_registry.yaml` of context/output-token metadata. A model absent from
