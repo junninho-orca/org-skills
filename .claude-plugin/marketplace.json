@@ -1,11 +1,11 @@
 {
-  "name": "example-org",
+  "name": "org-skills",
   "owner": {
-    "name": "Example Org Platform Team",
+    "name": "org-skills example",
     "email": "platform@example.com"
   },
   "metadata": {
-    "description": "Internally reviewed Claude Code plugins and skills for Example Org. Every entry has passed the NVIDIA SkillSpector merge gate.",
+    "description": "Reference example of an org-managed Claude Code plugin marketplace. Every entry has passed the NVIDIA SkillSpector merge gate.",
     "version": "0.1.0"
   },
   "plugins": [
@@ -14,16 +14,28 @@
       "source": "./plugins/dev-workflow",
       "description": "PR descriptions and release notes generated from the actual diff.",
       "version": "0.1.0",
-      "author": { "name": "Example Org Platform Team" },
-      "keywords": ["git", "pull-request", "release-notes"]
+      "author": {
+        "name": "Example Org Platform Team"
+      },
+      "keywords": [
+        "git",
+        "pull-request",
+        "release-notes"
+      ]
     },
     {
       "name": "incident-response",
       "source": "./plugins/incident-response",
       "description": "Incident timelines and blameless postmortems in the org template.",
       "version": "0.1.0",
-      "author": { "name": "Example Org SRE" },
-      "keywords": ["incident", "postmortem", "sre"]
+      "author": {
+        "name": "Example Org SRE"
+      },
+      "keywords": [
+        "incident",
+        "postmortem",
+        "sre"
+      ]
     }
   ]
 }

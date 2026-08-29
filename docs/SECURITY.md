@@ -46,7 +46,9 @@ The scan still runs and still blocks. Findings are in the job summary and artifa
 Auto-merge is only safe because these are enforced. Set them when standing up the repo:
 
 - Require a pull request before merging, with **Require review from Code Owners**
-- Require status checks: `Discover changed plugins`, `Scan *`
+- Require the **`Gate`** status check — and only that one. `Scan <plugin>` are matrix jobs whose
+  names change with the plugin set; requiring them by name means a newly added plugin produces an
+  unrequired check and merges ungated. `Gate` aggregates them under a stable name.
 - Require branches to be up to date before merging
 - Dismiss stale approvals on new commits
 - Do not allow bypassing the above (including for admins)

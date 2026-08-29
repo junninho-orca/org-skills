@@ -27,7 +27,8 @@ that sentence is the only thing loaded at startup, so it is what decides whether
    ```bash
    skillspector scan plugins/<name> --no-llm
    ```
-5. Open a PR. CI scans, uploads SARIF, and arms auto-merge if you pass.
+5. Open a PR. CI scans, uploads SARIF, and arms auto-merge if you pass. The required check is
+   **`Gate`**; the per-plugin `Scan <name>` jobs feed it.
 
 ## Writing skills that survive review
 
