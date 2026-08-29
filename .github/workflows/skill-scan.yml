@@ -142,9 +142,12 @@ jobs:
           fi
 
           # SARIF for code scanning; markdown for the human reading the PR.
+          # GitHub's default shell is `bash -e`; `set +o errexit` above does not
+          # survive that, and a plain `cmd; code=$?` dies before the assignment.
+          # `|| code=$?` is checked context, so errexit stays suppressed.
+          code=0
           skillspector scan "$target" $llm_flag $baseline \
-            --format sarif -o "skillspector.sarif"
-          code=$?
+            --format sarif -o "skillspector.sarif" || code=$?
           skillspector scan "$target" $llm_flag $baseline \
             --format markdown -o "skillspector.md" || true
 
@@ -213,10 +216,13 @@ jobs:
       # PASS in this repo becomes meaningless. No SARIF upload - these findings
       # are intentional and must not enter the repo's code scanning state.
       - name: Expect DO_NOT_INSTALL on the known-bad fixture
+        id: selftest
         run: |
           set -uo pipefail
-          skillspector scan tests/fixtures/known-bad --no-llm --format markdown -o selftest.md
-          code=$?
+          # See the note in the scan job: `|| code=$?` is required because the
+          # default shell carries -e, and exit 1 is the EXPECTED result here.
+          code=0
+          skillspector scan tests/fixtures/known-bad --no-llm --format markdown -o selftest.md || code=$?
 
           {
             echo "## Gate self-test"
@@ -233,6 +239,14 @@ jobs:
             *) echo "::error title=Self-test errored::SkillSpector exited ${code}; expected 1. Failing closed."
                exit 1 ;;
           esac
+
+      - name: Retain self-test report (audit log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-selftest
+          path: selftest.md
+          retention-days: 90
 
   automerge:
     name: Arm auto-merge

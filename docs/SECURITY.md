@@ -54,7 +54,7 @@ OpenAI-compatible endpoint.
 | Variable | Value |
 |----------|-------|
 | `SKILLSPECTOR_COMPAT_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta/openai/` (this is the default; only set it to override) |
-| `SKILLSPECTOR_MODEL` | e.g. `gemini-2.5-pro` — confirm the current model id in AI Studio |
+| `SKILLSPECTOR_MODEL` | e.g. `gemini-3.7-flash` — confirm the current model id in AI Studio |
 
 Leaving the secret unset is a supported state: the gate runs static-only.
 
@@ -83,7 +83,7 @@ work together, and it exercises the same path CI takes:
 export SKILLSPECTOR_PROVIDER=openai_compatible
 export SKILLSPECTOR_COMPAT_API_KEY='<your-gemini-key>'
 export SKILLSPECTOR_COMPAT_BASE_URL='https://generativelanguage.googleapis.com/v1beta/openai/'
-export SKILLSPECTOR_MODEL='gemini-2.5-pro'
+export SKILLSPECTOR_MODEL='gemini-3.7-flash'
 skillspector scan tests/fixtures/known-bad
 echo "exit=$?"   # expect 1
 ```
