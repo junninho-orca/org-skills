@@ -12,8 +12,8 @@ machine on next update. Treat a change to `plugins/**` as you would a change to 
 |---------|-------|
 | Automated scan of every changed plugin | [`skill-scan.yml`](../.github/workflows/skill-scan.yml) |
 | Fail-closed on scanner error | `Enforce policy` step, exit code `2` |
-| Findings as SARIF in code scanning | `github/codeql-action/upload-sarif@v3` — **requires GHAS on a private repo**, see below |
-| 90-day retained scan reports | `actions/upload-artifact@v4` — audit trail |
+| Findings as SARIF in code scanning | `github/codeql-action/upload-sarif@v4` — **requires GHAS on a private repo**, see below |
+| 90-day retained scan reports | `actions/upload-artifact@v7` — audit trail |
 | Human approval before merge | [`CODEOWNERS`](../CODEOWNERS) + branch protection |
 | Pinned scanner version | `SKILLSPECTOR_VERSION` — bump is security-reviewed |
 | Least-privilege CI | top-level `permissions: {}`, per-job opt-in, `persist-credentials: false` |
