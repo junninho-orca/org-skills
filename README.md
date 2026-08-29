@@ -135,7 +135,11 @@ package, and [Agent Skills](https://agentskills.io/specification) for each `SKIL
    Full list in [docs/SECURITY.md](docs/SECURITY.md#required-branch-protection-on-main).
 4. **Optional: enable semantic analysis.** Static analysis is the default and needs no credentials.
    Adding an LLM catches description-vs-behavior mismatch, which pattern matching cannot.
-   Providers and setup in [docs/skill-policy.md](docs/skill-policy.md).
+   The workflow passes every SkillSpector provider's credentials through, so choosing one is a
+   repository-settings change, not a workflow edit — set `SKILLSPECTOR_PROVIDER` and that
+   provider's secrets. Gemini, OpenAI, Anthropic, Azure, Bedrock (OIDC, no stored key), NVIDIA
+   Build, and self-hosted Ollama are all supported. Matrix in
+   [docs/skill-policy.md](docs/skill-policy.md).
 5. **Replace the example plugins** with your own. Keep `tests/fixtures/known-bad/` — it is what
    tells you the gate still works.
 

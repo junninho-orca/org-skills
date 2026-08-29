@@ -64,44 +64,51 @@ what pattern matching cannot do: compare a skill's *stated* description against 
 actually instructs, flag vague triggers, and filter false positives. The `known-bad` fixture is
 built around exactly that gap — it advertises repo cleanup and does something else.
 
-SkillSpector v2.11.0 registers twelve providers via `SKILLSPECTOR_PROVIDER` (the README lists only
-seven — this table is from the source). `SKILLSPECTOR_MODEL` overrides any provider's default model.
+SkillSpector v2.11.0 registers twelve providers via `SKILLSPECTOR_PROVIDER`. The workflow passes
+**every** provider's credentials through, so switching providers is a settings change — no workflow
+edit. Set `SKILLSPECTOR_PROVIDER` as a repository variable, supply only that row's credentials, and
+leave the rest unset.
 
-| Provider | Credentials | Notes |
-|----------|-------------|-------|
-| `openai_compatible` | `SKILLSPECTOR_COMPAT_API_KEY` + `SKILLSPECTOR_COMPAT_BASE_URL` | **What this repo uses**, pointed at Gemini |
-| `openai` | `OPENAI_API_KEY`, optional `OPENAI_BASE_URL` | api.openai.com |
-| `anthropic` | `ANTHROPIC_API_KEY` | api.anthropic.com |
-| `anthropic_proxy` | `ANTHROPIC_PROXY_API_KEY` + `ANTHROPIC_PROXY_ENDPOINT_URL` | Vertex-style raw-predict proxy |
-| `bedrock` | AWS SigV4 (boto3 chain / `AWS_PROFILE`) | No static key if federated via OIDC |
-| `azure_openai` | Azure OpenAI Service | |
-| `nv_build` | `NVIDIA_INFERENCE_KEY` | build.nvidia.com |
-| `ollama` | none | Local instance |
-| `claude_cli` / `codex_cli` / `gemini_cli` | none | Local binary, uses your existing CLI auth |
-| `antigravity_cli` | — | Registered but disabled; use `gemini_cli` |
+Variable names below are those the v2.11.0 source actually reads. `SKILLSPECTOR_MODEL` overrides
+any provider's default model.
+
+| `SKILLSPECTOR_PROVIDER` | Secrets | Variables |
+|---|---|---|
+| `openai_compatible` *(default here — Gemini, Groq, Together, Mistral)* | `SKILLSPECTOR_COMPAT_API_KEY` | `SKILLSPECTOR_COMPAT_BASE_URL` |
+| `openai` | `OPENAI_API_KEY` | `OPENAI_BASE_URL`, `OPENAI_PROJECT_ID` |
+| `anthropic` | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` |
+| `anthropic_proxy` | `ANTHROPIC_PROXY_API_KEY` | `ANTHROPIC_PROXY_ENDPOINT_URL` |
+| `azure_openai` | `AZURE_OPENAI_API_KEY` | `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION` |
+| `bedrock` | *none — OIDC* | `SKILLSPECTOR_BEDROCK_ROLE_ARN`, `AWS_REGION` |
+| `nv_build` | `NVIDIA_INFERENCE_KEY` | — |
+| `ollama` | *none* | `OLLAMA_BASE_URL` (runner must reach it) |
+| `claude_cli` / `codex_cli` / `gemini_cli` | *none* | local binary; not practical on a hosted runner |
+
+`bedrock` is the only one with no stored secret: the workflow assumes an OIDC-federated role when
+`SKILLSPECTOR_BEDROCK_ROLE_ARN` is set, and the step is inert otherwise. Prefer it if you would
+rather not hold a long-lived model key. `ollama` or `openai_compatible` against a self-hosted
+endpoint keeps skill source inside your network.
 
 > [!IMPORTANT]
-> `SKILLSPECTOR_PROVIDER` defaults to **`nv_build`** when unset. If you run without `--no-llm` and
-> forget to set the provider, it will try build.nvidia.com and fail on a missing
-> `NVIDIA_INFERENCE_KEY` rather than doing what you meant. Always set it explicitly.
+> `SKILLSPECTOR_PROVIDER` defaults to **`nv_build`** in SkillSpector itself when unset. This
+> workflow defaults it to `openai_compatible` instead, so an unconfigured fork fails toward the
+> documented path rather than an unexplained missing `NVIDIA_INFERENCE_KEY`.
 
-`openai_compatible` uses dedicated `SKILLSPECTOR_COMPAT_*` variable names on purpose — it does not
-read `OPENAI_API_KEY` or `OPENAI_BASE_URL`, so stock OpenAI settings in your shell cannot silently
-redirect it. Setting the wrong pair is the most likely first-run failure.
+`openai_compatible` uses dedicated `SKILLSPECTOR_COMPAT_*` names on purpose — it does not read
+`OPENAI_API_KEY` or `OPENAI_BASE_URL`, so stock OpenAI settings cannot silently redirect it.
 
 Setup: [SECURITY.md](SECURITY.md#semantic-stage-credentials).
 
-The stage is enabled only when `SKILLSPECTOR_COMPAT_API_KEY` is non-empty. Fork PRs cannot read
-repository secrets, so they run static-only and fall back rather than failing. **A missing semantic
-pass must never mean a missing gate** — static analysis and the exit-code policy still block.
+The semantic pass is enabled when **any** provider credential is present. Fork PRs cannot read
+repository secrets, so they run static-only. **A missing semantic pass must never mean a missing
+gate** — static analysis and the exit-code policy still block.
 
-That fallback is a real coverage difference, not just a degraded log line: the
-description-vs-behavior mismatch check does not run on fork PRs. Weigh that when deciding whether to
-accept plugin contributions from forks at all.
+That fallback is a real coverage difference: the description-vs-behavior mismatch check does not run
+on fork PRs. Weigh that when deciding whether to accept plugin contributions from forks at all.
 
-Note the LLM stage is non-deterministic. It can move a risk score between runs on unchanged input,
-so a re-run may flip a borderline result near the 50 boundary. The `gate-selftest` job deliberately
-stays on `--no-llm` so the gate's own health check cannot flake.
+The LLM stage is non-deterministic and can move a risk score between runs on unchanged input, so a
+re-run may flip a borderline result near the 50 boundary. `gate-selftest` deliberately stays on
+`--no-llm` so the gate's own health check cannot flake.
 
 ## Suppressions
 

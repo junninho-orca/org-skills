@@ -98,6 +98,7 @@ jobs:
     permissions:
       contents: read
       security-events: write   # required to upload SARIF
+      id-token: write          # only used when the bedrock provider is configured
     strategy:
       fail-fast: false          # scan every plugin, report all findings at once
       matrix:
@@ -118,30 +119,74 @@ jobs:
             "skillspector @ git+https://github.com/NVIDIA/SkillSpector.git@${SKILLSPECTOR_VERSION}"
           skillspector --version
 
+      # Only runs when SKILLSPECTOR_BEDROCK_ROLE_ARN is set, i.e. when an adopter
+      # has chosen the bedrock provider. Inert otherwise.
+      - name: Assume Bedrock role (OIDC)
+        id: aws
+        if: >-
+          vars.SKILLSPECTOR_BEDROCK_ROLE_ARN != '' &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.SKILLSPECTOR_BEDROCK_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          role-session-name: skillspector-${{ github.run_id }}
+
       - name: Scan
         id: scan
         env:
           PLUGIN: ${{ matrix.plugin }}
-          # Gemini through its OpenAI-compatible endpoint. Note the dedicated
-          # SKILLSPECTOR_COMPAT_* names - this provider deliberately does NOT
-          # read OPENAI_API_KEY / OPENAI_BASE_URL.
-          SKILLSPECTOR_PROVIDER: openai_compatible
+          AWS_OUTCOME: ${{ steps.aws.outcome }}
+
+          # Provider-agnostic pass-through. Set SKILLSPECTOR_PROVIDER as a repo
+          # variable and supply only that provider's credentials; the rest stay
+          # empty and are ignored. Variable names are those SkillSpector v2.11.0
+          # actually reads - see docs/skill-policy.md for the full matrix.
+          SKILLSPECTOR_PROVIDER: ${{ vars.SKILLSPECTOR_PROVIDER || 'openai_compatible' }}
+          SKILLSPECTOR_MODEL: ${{ vars.SKILLSPECTOR_MODEL }}
+
+          # openai_compatible (Gemini, Groq, Together, Mistral, ...)
           SKILLSPECTOR_COMPAT_API_KEY: ${{ secrets.SKILLSPECTOR_COMPAT_API_KEY }}
           SKILLSPECTOR_COMPAT_BASE_URL: ${{ vars.SKILLSPECTOR_COMPAT_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai/' }}
-          SKILLSPECTOR_MODEL: ${{ vars.SKILLSPECTOR_MODEL }}
+          # openai
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+          OPENAI_PROJECT_ID: ${{ vars.OPENAI_PROJECT_ID }}
+          # anthropic
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
+          # anthropic_proxy
+          ANTHROPIC_PROXY_API_KEY: ${{ secrets.ANTHROPIC_PROXY_API_KEY }}
+          ANTHROPIC_PROXY_ENDPOINT_URL: ${{ vars.ANTHROPIC_PROXY_ENDPOINT_URL }}
+          # azure_openai
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION }}
+          # nv_build
+          NVIDIA_INFERENCE_KEY: ${{ secrets.NVIDIA_INFERENCE_KEY }}
+          # ollama (self-hosted; needs a runner that can reach it)
+          OLLAMA_BASE_URL: ${{ vars.OLLAMA_BASE_URL }}
         run: |
           set -uo pipefail
           target="plugins/${PLUGIN}"
 
-          # Secrets are unavailable to fork PRs, so this legitimately runs
-          # static-only there. A missing semantic pass must never mean a missing
-          # gate: the exit-code policy below still runs and still blocks.
+          # Enable the semantic pass if ANY provider credential arrived. Fork PRs
+          # cannot read secrets, so they legitimately run static-only. A missing
+          # semantic pass must never mean a missing gate: the exit-code policy
+          # below still runs and still blocks.
+          creds="${SKILLSPECTOR_COMPAT_API_KEY:-}${OPENAI_API_KEY:-}${ANTHROPIC_API_KEY:-}"
+          creds="${creds}${ANTHROPIC_PROXY_API_KEY:-}${AZURE_OPENAI_API_KEY:-}${NVIDIA_INFERENCE_KEY:-}"
+          creds="${creds}${OLLAMA_BASE_URL:-}"
+          [ "${AWS_OUTCOME:-}" = "success" ] && creds="${creds}bedrock"
+
           llm_flag="--no-llm"
-          if [ -n "${SKILLSPECTOR_COMPAT_API_KEY:-}" ]; then
+          if [ -n "$creds" ]; then
             llm_flag=""
-            echo "LLM semantic analysis: enabled (${SKILLSPECTOR_MODEL:-provider default} via ${SKILLSPECTOR_COMPAT_BASE_URL})"
+            echo "LLM semantic analysis: enabled (provider=${SKILLSPECTOR_PROVIDER} model=${SKILLSPECTOR_MODEL:-provider default})"
           else
-            echo "LLM semantic analysis: disabled (no SKILLSPECTOR_COMPAT_API_KEY) - static analysis only"
+            echo "LLM semantic analysis: disabled (no credentials for provider=${SKILLSPECTOR_PROVIDER}) - static analysis only"
           fi
 
           baseline=""
