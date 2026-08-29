@@ -12,13 +12,29 @@ machine on next update. Treat a change to `plugins/**` as you would a change to 
 |---------|-------|
 | Automated scan of every changed plugin | [`skill-scan.yml`](../.github/workflows/skill-scan.yml) |
 | Fail-closed on scanner error | `Enforce policy` step, exit code `2` |
-| Findings as SARIF in code scanning | `github/codeql-action/upload-sarif@v3` |
+| Findings as SARIF in code scanning | `github/codeql-action/upload-sarif@v3` — **requires GHAS on a private repo**, see below |
 | 90-day retained scan reports | `actions/upload-artifact@v4` — audit trail |
 | Human approval before merge | [`CODEOWNERS`](../CODEOWNERS) + branch protection |
 | Pinned scanner version | `SKILLSPECTOR_VERSION` — bump is security-reviewed |
 | Least-privilege CI | top-level `permissions: {}`, per-job opt-in, `persist-credentials: false` |
 | Model credential scoped + rotatable | Gemini key as an Actions secret; unreadable by fork PRs |
 | Ephemeral scan environment | GitHub-hosted runners, fresh per job |
+
+## Code scanning entitlement
+
+SARIF upload is **non-fatal**. On a private repository, GitHub code scanning requires GitHub
+Advanced Security; without it the API returns `403 Code scanning is not enabled` and the upload step
+logs a failure but does not block the merge gate. That is deliberate — a missing reporting surface
+is not a security failure, and the scan verdict, job summary, and 90-day artifact are unaffected.
+
+To get findings into the Security tab, one of:
+
+- move the repo to an org with GHAS licensing (the intended end state for an org marketplace),
+- make the repository public — code scanning is free for public repos, or
+- accept the artifact + job summary as the finding surface.
+
+Until one is chosen, read findings from the run's job summary or download the
+`skillspector-<plugin>` artifact.
 
 ## Fork PRs
 

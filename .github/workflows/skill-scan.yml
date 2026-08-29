@@ -168,8 +168,19 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload SARIF to code scanning
-        # Fork PRs cannot write security events; the gate below still blocks them.
-        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        # Skip only for FORK PRs, which cannot write security events. The old
+        # guard compared head.repo against the repository unconditionally, which
+        # is empty on `push` and silently skipped every upload on main.
+        #
+        # Non-fatal: code scanning requires GitHub Advanced Security on a private
+        # repo, and a missing entitlement is a reporting gap, not a security one.
+        # The gate does not depend on this step - findings are also in the job
+        # summary and the retained artifact. See docs/SECURITY.md.
+        if: >-
+          always() &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: skillspector.sarif
