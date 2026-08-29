@@ -17,7 +17,7 @@ machine on next update. Treat a change to `plugins/**` as you would a change to 
 | Human approval before merge | [`CODEOWNERS`](../CODEOWNERS) + branch protection |
 | Pinned scanner version | `SKILLSPECTOR_VERSION` — bump is security-reviewed |
 | Least-privilege CI | top-level `permissions: {}`, per-job opt-in, `persist-credentials: false` |
-| Model credential scoped + rotatable | Gemini key as an Actions secret; unreadable by fork PRs |
+| Model credential scoped + rotatable | Actions secret, unreadable by fork PRs; or none at all via OIDC |
 | Ephemeral scan environment | GitHub-hosted runners, fresh per job |
 
 ## Code scanning entitlement
@@ -56,25 +56,78 @@ Auto-merge is only safe because these are enforced. Set them when standing up th
 
 ## Semantic stage credentials
 
-The optional LLM pass uses `SKILLSPECTOR_PROVIDER=openai_compatible` pointed at Gemini's
-OpenAI-compatible endpoint.
+Static analysis is the default and needs no credentials. The optional LLM pass adds
+description-vs-behavior mismatch detection, which pattern matching cannot do.
 
-**1. Get a Gemini API key** from [Google AI Studio](https://aistudio.google.com/apikey).
+**Any** SkillSpector provider works — the workflow passes all of their credentials through, so
+choosing one is a settings change, not a workflow edit. The full matrix of variable names is in
+[skill-policy.md](skill-policy.md#semantic-analysis-optional).
 
-**2. Add it as a repository _secret_** (Settings → Secrets and variables → Actions → **Secrets**):
+The general shape, whichever provider you pick:
 
-| Secret | Value |
-|--------|-------|
-| `SKILLSPECTOR_COMPAT_API_KEY` | your Gemini API key |
+1. Set `SKILLSPECTOR_PROVIDER` as a repository **variable**.
+2. Set that provider's credential as a repository **secret**, and its endpoint/model settings as
+   **variables** (Settings → Secrets and variables → Actions — note the two tabs).
+3. Leave every other provider's settings unset. They are ignored.
 
-**3. Add these as repository _variables_** (same page, **Variables** tab — neither is sensitive):
+Leaving all of them unset is supported: the gate runs static-only.
 
-| Variable | Value |
-|----------|-------|
-| `SKILLSPECTOR_COMPAT_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta/openai/` (this is the default; only set it to override) |
-| `SKILLSPECTOR_MODEL` | e.g. `gemini-3.7-flash` — confirm the current model id in AI Studio |
+Two options avoid holding a long-lived model key at all, worth considering before you store one:
 
-Leaving the secret unset is a supported state: the gate runs static-only.
+- **`bedrock`** — set `SKILLSPECTOR_BEDROCK_ROLE_ARN` and the workflow assumes an OIDC-federated
+  AWS role per run. No stored secret.
+- **`ollama`**, or `openai_compatible` against a self-hosted endpoint — keeps skill source inside
+  your network.
+
+### Worked example: Gemini
+
+What *this* repository uses, as one concrete instance of the above. Nothing here is required by the
+gate.
+
+| Kind | Name | Value |
+|------|------|-------|
+| Secret | `SKILLSPECTOR_COMPAT_API_KEY` | key from [Google AI Studio](https://aistudio.google.com/apikey) |
+| Variable | `SKILLSPECTOR_PROVIDER` | `openai_compatible` |
+| Variable | `SKILLSPECTOR_COMPAT_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| Variable | `SKILLSPECTOR_MODEL` | `gemini-3.7-flash` — confirm the current id in AI Studio |
+
+Gemini has no native SkillSpector provider; it is reached through its OpenAI-compatible endpoint.
+`openai_compatible` reads `SKILLSPECTOR_COMPAT_*` and deliberately **not** `OPENAI_API_KEY` /
+`OPENAI_BASE_URL`, so stray OpenAI settings cannot silently redirect it.
+
+There is no default base URL in the workflow, by design. A baked-in one would send your skills to
+that vendor whenever an adopter sets the provider but forgets the endpoint. Setting the key without
+the URL fails the run with an explicit error rather than quietly dropping to static-only.
+
+### Tradeoff of an API-key provider
+
+An API key stored in GitHub is a long-lived credential, which the OIDC `bedrock` path avoids. For a
+model API the blast radius is a quota rather than cloud access, which is why it is a reasonable
+default — but rotate on a schedule and scope the key to its own project.
+
+### Verify before touching CI
+
+Run the fixture locally. Fastest way to confirm credentials, endpoint, and model id work together,
+and it exercises the same path CI takes. Substitute your own provider's variables:
+
+```bash
+export SKILLSPECTOR_PROVIDER=openai_compatible
+export SKILLSPECTOR_COMPAT_API_KEY='<your-key>'
+export SKILLSPECTOR_COMPAT_BASE_URL='<your-endpoint>'
+export SKILLSPECTOR_MODEL='<your-model>'
+skillspector scan tests/fixtures/known-bad
+echo "exit=$?"   # expect 1
+```
+
+`exit=1` means the whole chain works. A credentials error means the key or endpoint is wrong; a
+model error means the model id is not valid for that endpoint.
+
+### Optional: model token budgets
+
+Each provider bundles a `model_registry.yaml` of context/output-token metadata. A model absent from
+it falls back to conservative defaults — true for Gemini under `openai_compatible`. Point
+`SKILLSPECTOR_MODEL_REGISTRY` at your own YAML to declare a larger context window if you hit
+truncation on big skills.
 
 ### Local credentials
 

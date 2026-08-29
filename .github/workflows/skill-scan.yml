@@ -146,9 +146,12 @@ jobs:
           SKILLSPECTOR_PROVIDER: ${{ vars.SKILLSPECTOR_PROVIDER || 'openai_compatible' }}
           SKILLSPECTOR_MODEL: ${{ vars.SKILLSPECTOR_MODEL }}
 
-          # openai_compatible (Gemini, Groq, Together, Mistral, ...)
+          # openai_compatible - any OpenAI-protocol endpoint (Gemini, Groq,
+          # Together, Mistral, self-hosted). No default base URL on purpose: a
+          # baked-in one silently sends your skills to that vendor when an
+          # adopter sets the provider but forgets the URL.
           SKILLSPECTOR_COMPAT_API_KEY: ${{ secrets.SKILLSPECTOR_COMPAT_API_KEY }}
-          SKILLSPECTOR_COMPAT_BASE_URL: ${{ vars.SKILLSPECTOR_COMPAT_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai/' }}
+          SKILLSPECTOR_COMPAT_BASE_URL: ${{ vars.SKILLSPECTOR_COMPAT_BASE_URL }}
           # openai
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
@@ -180,6 +183,15 @@ jobs:
           creds="${creds}${ANTHROPIC_PROXY_API_KEY:-}${AZURE_OPENAI_API_KEY:-}${NVIDIA_INFERENCE_KEY:-}"
           creds="${creds}${OLLAMA_BASE_URL:-}"
           [ "${AWS_OUTCOME:-}" = "success" ] && creds="${creds}bedrock"
+
+          # Half-configured openai_compatible is a misconfiguration, not a
+          # fallback: the key is present but there is nowhere to send it.
+          if [ "$SKILLSPECTOR_PROVIDER" = "openai_compatible" ] \
+             && [ -n "${SKILLSPECTOR_COMPAT_API_KEY:-}" ] \
+             && [ -z "${SKILLSPECTOR_COMPAT_BASE_URL:-}" ]; then
+            echo "::error title=Incomplete provider config::SKILLSPECTOR_COMPAT_API_KEY is set but SKILLSPECTOR_COMPAT_BASE_URL is not. Set the endpoint variable, or unset the key to run static-only."
+            exit 1
+          fi
 
           llm_flag="--no-llm"
           if [ -n "$creds" ]; then
