@@ -46,9 +46,17 @@ A green build proves the scanner found nothing in what changed. It does not prov
 still capable of finding anything. A bad pin, a broken install, or a silently degraded ruleset
 passes everything — and every `PASS` in this repo becomes meaningless with no visible symptom.
 
-`gate-selftest` closes that. It scans [`tests/fixtures/known-bad/`](../tests/fixtures/) — a skill
-carrying textbook AST01/02/03/04/08 patterns — and asserts exit `1`. Exit `0` fails the build with
-`GATE IS BROKEN`. Auto-merge depends on this job, so a broken gate stops merges outright.
+[`scanner-health.yml`](../.github/workflows/scanner-health.yml) closes that. It scans
+[`tests/fixtures/known-bad/`](../tests/fixtures/) — a plugin carrying AST01/02/03/04/08 behavior —
+and asserts exit `1`. Exit `0` fails with `SCANNER IS NOT DETECTING`.
+
+It runs on a weekday schedule and on any change to the scanner pin, the workflows, or the fixture —
+**not** on ordinary PRs. It checks the tool, not the change, and a developer editing one skill
+should not see a check about a fake malicious plugin. The trade: a scanner that degrades between
+scheduled runs could pass a PR in the interim. Gating every PR on it would close that window at the
+cost of a permanently confusing check on unrelated work, and of re-proving an invariant that only
+moves when the scanner does. Bumping `SKILLSPECTOR_VERSION` triggers it, so the most likely cause of
+degradation is covered synchronously.
 
 The fixture lives outside `plugins/` on purpose: `discover` only globs `plugins/*`, and nothing
 known-bad should ever be one edit away from a marketplace entry. Its findings are not uploaded as
@@ -59,9 +67,8 @@ the pin; do not weaken the fixture to go green.
 
 The fixture carries no marker in scanned content — it reads as a plausible plugin, so detection has
 to come from behavior. See
-[tests/fixtures/README.md](../tests/fixtures/README.md#blind-by-construction). `gate-selftest` still
-runs `--no-llm`, now purely for determinism: the check gating every merge must not depend on a
-non-deterministic model call.
+[tests/fixtures/README.md](../tests/fixtures/README.md#blind-by-construction). The health check runs
+`--no-llm` for determinism: a check that can flake is not a health check.
 
 ## Semantic analysis (optional)
 
@@ -113,7 +120,7 @@ That fallback is a real coverage difference: the description-vs-behavior mismatc
 on fork PRs. Weigh that when deciding whether to accept plugin contributions from forks at all.
 
 The LLM stage is non-deterministic and can move a risk score between runs on unchanged input, so a
-re-run may flip a borderline result near the 50 boundary. `gate-selftest` deliberately stays on
+re-run may flip a borderline result near the 50 boundary. The scanner health check deliberately stays on
 `--no-llm` so the gate's own health check cannot flake.
 
 ## Suppressions

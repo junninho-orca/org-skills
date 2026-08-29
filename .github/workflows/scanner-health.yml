@@ -1,0 +1,101 @@
+name: Scanner health
+
+# Confirms SkillSpector still detects a malicious skill at all.
+#
+# This is a check on the TOOL, not on anyone's change, so it deliberately does
+# not run on ordinary pull requests - a developer editing one skill should not
+# see a check about a fake malicious plugin, and re-proving this on every PR
+# adds noise without adding safety.
+#
+# It runs when the answer could actually have changed:
+#   - the pinned scanner version or the workflow changed
+#   - the fixture changed
+#   - on a schedule, to catch upstream drift in rules or model behaviour
+#
+# A green skill-scan proves the scanner found nothing in what changed. Only this
+# proves the scanner can still find anything. A bad pin or a silently degraded
+# ruleset passes everything, with no visible symptom.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1-5'   # weekdays, 06:17 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tests/fixtures/**'
+      - '.github/workflows/scanner-health.yml'
+      - '.github/workflows/skill-scan.yml'
+  pull_request:
+    paths:
+      - 'tests/fixtures/**'
+      - '.github/workflows/scanner-health.yml'
+      - '.github/workflows/skill-scan.yml'
+
+permissions: {}
+
+concurrency:
+  group: scanner-health-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Must match skill-scan.yml. Bumping either without the other means the gate
+  # and its health check are testing different scanners.
+  SKILLSPECTOR_VERSION: v2.11.0
+
+jobs:
+  scanner-health:
+    name: Scanner health
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install SkillSpector ${{ env.SKILLSPECTOR_VERSION }}
+        run: |
+          set -euo pipefail
+          pipx install \
+            "skillspector @ git+https://github.com/NVIDIA/SkillSpector.git@${SKILLSPECTOR_VERSION}"
+
+      # Inverted assertion: this fixture MUST fail. Static-only, so the result is
+      # deterministic and needs no credentials - a health check that can flake is
+      # not one. See tests/fixtures/README.md.
+      - name: Expect DO_NOT_INSTALL on the known-bad fixture
+        run: |
+          set -uo pipefail
+          # `|| code=$?` because the default shell carries -e and exit 1 is the
+          # EXPECTED result here.
+          code=0
+          skillspector scan tests/fixtures/known-bad --no-llm --format markdown -o selftest.md || code=$?
+
+          {
+            echo "## Scanner health"
+            echo
+            echo "SkillSpector \`${SKILLSPECTOR_VERSION}\` exited \`${code}\` on the known-bad fixture (expected \`1\`)."
+            echo
+            cat selftest.md 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          case "$code" in
+            1) echo "OK: the scanner still detects a malicious skill." ;;
+            0) echo "::error title=SCANNER IS NOT DETECTING::SkillSpector passed a deliberately malicious skill (exit 0). Every PASS from the merge gate is untrustworthy until this is fixed."
+               exit 1 ;;
+            *) echo "::error title=Scanner health check errored::SkillSpector exited ${code}; expected 1."
+               exit 1 ;;
+          esac
+
+      - name: Retain report (audit log)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scanner-health
+          path: selftest.md
+          retention-days: 90
+          if-no-files-found: error

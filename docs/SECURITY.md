@@ -11,6 +11,7 @@ machine on next update. Treat a change to `plugins/**` as you would a change to 
 | Control | Where |
 |---------|-------|
 | Automated scan of every changed plugin | [`skill-scan.yml`](../.github/workflows/skill-scan.yml) |
+| Scheduled proof the scanner still detects | [`scanner-health.yml`](../.github/workflows/scanner-health.yml) |
 | Fail-closed on scanner error | `Enforce policy` step, exit code `2` |
 | Findings as SARIF in code scanning | `github/codeql-action/upload-sarif@v4` — **requires GHAS on a private repo**, see below |
 | 90-day retained scan reports | `actions/upload-artifact@v7` — audit trail |

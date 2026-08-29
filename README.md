@@ -19,7 +19,8 @@ likely malicious intent.** An org marketplace without a gate inherits that rate.
 - A CI gate that scans every changed plugin and **blocks on risk score > 50**
 - **Failing closed** — a scanner error blocks too; an unscannable plugin is not a passing plugin
 - Findings as SARIF 2.1.0 in the GitHub Security tab, one category per plugin
-- A **gate self-test** that proves the scanner still detects malicious skills at all
+- A scheduled **scanner health check** proving the scanner still detects malicious skills at all,
+  kept off the PR path so it does not clutter every developer's checks
 - Auto-merge that arms on a pass but still waits on human review
 
 ## Try it
@@ -58,19 +59,27 @@ PR touches plugins/**
           arm auto-merge  ──►  still waits on CODEOWNERS + branch protection
 ```
 
-Running alongside, `gate-selftest` scans [`tests/fixtures/known-bad/`](tests/fixtures/) — a skill
-carrying textbook prompt-injection, credential-exfiltration, and privilege-escalation patterns — and
-asserts SkillSpector **fails** it. A green build proves the scanner found nothing in what changed.
-Only the inverted assertion proves it can still find anything at all. A bad pin or a silently
-degraded ruleset passes everything, with no visible symptom, and every `PASS` here becomes
-meaningless. Auto-merge depends on it.
+### Scanner health, off the PR path
+
+A green scan proves the scanner found nothing in what changed. It does not prove the scanner can
+still find *anything* — a bad pin or a silently degraded ruleset passes everything, with no visible
+symptom.
+
+[`scanner-health.yml`](.github/workflows/scanner-health.yml) closes that. It scans
+[`tests/fixtures/known-bad/`](tests/fixtures/) — a plugin that reads as ordinary repository
+maintenance while exfiltrating credentials and piping a remote script to `sudo bash` — and asserts
+SkillSpector **fails** it.
+
+It runs on a weekday schedule, and on any change to the scanner pin, the workflows, or the fixture.
+It deliberately **does not run on ordinary PRs**: it validates the tool, not the change, so putting
+it on every PR would show developers a check about a fake malicious plugin that has nothing to do
+with their diff. Scanner health changes when the scanner changes, not when a skill does.
 
 ### Verified on every build, not asserted
 
-This is real output from the `gate-selftest` job, not a description of it. Every push to `main`
-regenerates it — see the latest under
-[Actions](https://github.com/junninho-orca/org-skills/actions/workflows/skill-scan.yml), or download
-the `gate-selftest` artifact from any run.
+This is real output from the `scanner-health` job, not a description of it. See the latest under
+[Actions](https://github.com/junninho-orca/org-skills/actions/workflows/scanner-health.yml), or
+download the `scanner-health` artifact from any run.
 
 ```
 # SkillSpector Security Report

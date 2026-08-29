@@ -15,7 +15,6 @@ on:
     paths:
       - 'plugins/**'
       - '.claude-plugin/marketplace.json'
-      - 'tests/fixtures/**'
       - '.github/workflows/skill-scan.yml'
   push:
     branches: [main]
@@ -25,7 +24,6 @@ on:
     paths:
       - 'plugins/**'
       - '.claude-plugin/marketplace.json'
-      - 'tests/fixtures/**'
       - '.github/workflows/skill-scan.yml'
 
   # On-demand run, for verifying a gate change without pushing a dummy commit.
@@ -272,72 +270,17 @@ jobs:
                exit 1 ;;
           esac
 
-  gate-selftest:
-    name: Gate self-test (must block known-bad)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12'
-
-      - name: Install SkillSpector ${{ env.SKILLSPECTOR_VERSION }}
-        run: |
-          set -euo pipefail
-          pipx install \
-            "skillspector @ git+https://github.com/NVIDIA/SkillSpector.git@${SKILLSPECTOR_VERSION}"
-
-      # Inverted assertion. A green build proves the scanner finds what is there;
-      # only this proves it is still capable of finding anything at all. A
-      # misconfigured or silently degraded scanner passes everything, and every
-      # PASS in this repo becomes meaningless. No SARIF upload - these findings
-      # are intentional and must not enter the repo's code scanning state.
-      - name: Expect DO_NOT_INSTALL on the known-bad fixture
-        id: selftest
-        run: |
-          set -uo pipefail
-          # See the note in the scan job: `|| code=$?` is required because the
-          # default shell carries -e, and exit 1 is the EXPECTED result here.
-          code=0
-          skillspector scan tests/fixtures/known-bad --no-llm --format markdown -o selftest.md || code=$?
-
-          {
-            echo "## Gate self-test"
-            echo
-            echo "SkillSpector exited \`${code}\` on \`tests/fixtures/known-bad\` (expected \`1\`)."
-            echo
-            cat selftest.md 2>/dev/null || true
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          case "$code" in
-            1) echo "OK: the gate blocks a known-bad skill." ;;
-            0) echo "::error title=GATE IS BROKEN::SkillSpector passed a deliberately malicious skill (exit 0). Every PASS in this repo is untrustworthy until this is fixed. Do not merge."
-               exit 1 ;;
-            *) echo "::error title=Self-test errored::SkillSpector exited ${code}; expected 1. Failing closed."
-               exit 1 ;;
-          esac
-
-      - name: Retain self-test report (audit log)
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: gate-selftest
-          path: selftest.md
-          retention-days: 90
-          if-no-files-found: error
-
   gate:
     # Single fixed-name check for branch protection to require. The scan jobs are
     # a matrix, so their names vary with the plugin set - requiring them by name
     # would silently not cover a newly added plugin. This job's name never
     # changes, so it covers every plugin for all time.
+    #
+    # Scanner health is checked by scanner-health.yml, deliberately off the PR
+    # path: it validates the tool, not the change, and would otherwise put a
+    # check about a fake malicious plugin on every unrelated PR.
     name: Gate
-    needs: [discover, scan, gate-selftest]
+    needs: [discover, scan]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -345,10 +288,9 @@ jobs:
         env:
           DISCOVER: ${{ needs.discover.result }}
           SCAN: ${{ needs.scan.result }}
-          SELFTEST: ${{ needs['gate-selftest'].result }}
         run: |
           set -euo pipefail
-          echo "discover=$DISCOVER  scan=$SCAN  gate-selftest=$SELFTEST"
+          echo "discover=$DISCOVER  scan=$SCAN"
 
           fail=0
           [ "$DISCOVER" = "success" ] || { echo "::error::discover did not succeed ($DISCOVER)"; fail=1; }
@@ -357,19 +299,13 @@ jobs:
             success|skipped) ;;
             *) echo "::error::one or more plugin scans did not pass ($SCAN)"; fail=1 ;;
           esac
-          # Never optional. If the gate cannot prove it still blocks, nothing merges.
-          [ "$SELFTEST" = "success" ] || { echo "::error::gate self-test did not pass ($SELFTEST)"; fail=1; }
-
           [ "$fail" -eq 0 ] && echo "Gate passed." || exit 1
 
   automerge:
     name: Arm auto-merge
     needs: [gate]
-    # `needs.gate-selftest` must use bracket syntax: a hyphen in a property
-    # dereference is parsed as subtraction by the expression engine.
-    # `scan` is legitimately skipped when a PR touches no plugin (e.g. fixtures
-    # or marketplace metadata only), so 'skipped' is a pass here - but the
-    # self-test is not optional and must be 'success'.
+    # `scan` is legitimately skipped when a PR touches no plugin (e.g. marketplace
+    # metadata only), so 'skipped' is a pass here.
     if: >-
       github.event_name == 'pull_request' &&
       needs.gate.result == 'success' &&

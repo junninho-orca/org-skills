@@ -22,7 +22,7 @@ Two reasons:
 
 ## What it tests
 
-The `gate-selftest` job in [`skill-scan.yml`](../../.github/workflows/skill-scan.yml) scans
+The `scanner-health` job in [`scanner-health.yml`](../../.github/workflows/scanner-health.yml) scans
 `known-bad/` and asserts SkillSpector exits **1**. An exit of `0` fails the build.
 
 That inverted assertion covers the failure mode a normal green build cannot: a scanner that is
@@ -98,10 +98,9 @@ model, so none of them can flatter the result.
 Because the fixture is blind, running it **with** an LLM is a meaningful test of the semantic stage,
 not a test of whether a model can read a label. It was not before.
 
-`gate-selftest` still runs `--no-llm`, for a reason unrelated to leakage: the check that decides
-whether anything merges must be deterministic, and the semantic stage is not. A separate
-non-blocking job could exercise the semantic path against this fixture without putting a
-non-deterministic call on the merge path.
+The health check still runs `--no-llm`, for a reason unrelated to leakage: a check that can flake is
+not a health check. A separate non-blocking job could exercise the semantic path against this
+fixture now that doing so tests detection rather than label-reading.
 
 ## Keeping it honest
 
