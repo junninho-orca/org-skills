@@ -125,23 +125,37 @@ package, and [Agent Skills](https://agentskills.io/specification) for each `SKIL
 
 ## Adopting this for your own org
 
-1. **Fork**, then replace the `example.com` placeholders in `plugins/*/plugin.json` and
-   `.claude-plugin/marketplace.json`.
-2. **Point [`CODEOWNERS`](CODEOWNERS) at real teams.** Under a personal account there are no teams,
-   so the copy here names a single owner — which is a placeholder, not a control. Security-owned
-   paths need a second, different pair of eyes.
-3. **Configure branch protection** on `main`. Auto-merge is only safe because of it. Require a PR,
-   require code-owner review, and require the **`Gate`** check.
-   Full list in [docs/SECURITY.md](docs/SECURITY.md#required-branch-protection-on-main).
-4. **Optional: enable semantic analysis.** Static analysis is the default and needs no credentials.
-   Adding an LLM catches description-vs-behavior mismatch, which pattern matching cannot.
-   The workflow passes every SkillSpector provider's credentials through, so choosing one is a
-   repository-settings change, not a workflow edit — set `SKILLSPECTOR_PROVIDER` and that
-   provider's secrets. Gemini, OpenAI, Anthropic, Azure, Bedrock (OIDC, no stored key), NVIDIA
-   Build, and self-hosted Ollama are all supported. Matrix in
+Fork it, then run the bootstrap script. It rewrites every placeholder that would otherwise
+misbehave in a fork — most importantly [`CODEOWNERS`](CODEOWNERS), which names accounts that do not
+exist in your org and would make required code-owner review impossible to satisfy, blocking every
+PR with a confusing message.
+
+```bash
+./scripts/bootstrap.sh --org acme --repo skills          # preview, writes nothing
+```
+
+```bash
+./scripts/bootstrap.sh --org acme --repo skills --apply --protect \
+    --team platform --security-team appsec --email-domain acme.com
+```
+
+`--apply` writes the changes; `--protect` also applies branch protection and enables auto-merge.
+It is dry-run by default, and `--help` documents every flag. On a personal account with no teams,
+pass your username for `--team` and `--security-team` and it writes `@username` instead of
+`@org/team`.
+
+Then, by hand:
+
+1. **Replace the example plugins** under `plugins/` with your own, and update
+   [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) to match.
+2. **Optional: enable semantic analysis.** Static analysis is the default and needs no credentials.
+   Adding an LLM catches description-vs-behavior mismatch, which pattern matching cannot. The
+   workflow passes every SkillSpector provider's credentials through, so choosing one is a
+   repository-settings change, not a workflow edit. Gemini, OpenAI, Anthropic, Azure, Bedrock
+   (OIDC, no stored key), NVIDIA Build, and self-hosted Ollama are all supported. Matrix in
    [docs/skill-policy.md](docs/skill-policy.md).
-5. **Replace the example plugins** with your own. Keep `tests/fixtures/known-bad/` — it is what
-   tells you the gate still works.
+3. **Keep [`tests/fixtures/known-bad/`](tests/fixtures/)** — it is what tells you the gate still
+   works. Everything else here is replaceable; that is not.
 
 > [!IMPORTANT]
 > Require the **`Gate`** check, never the individual `Scan <plugin>` checks. Those are matrix jobs
