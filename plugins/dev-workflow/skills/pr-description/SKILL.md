@@ -44,3 +44,6 @@ Generate a PR title and body that a reviewer can act on without opening every fi
 - If the diff contains a schema migration, a new dependency, or a config default change, call it out under **Review notes** — those are the parts reviewers miss.
 - If the diff spans unrelated concerns, say so and suggest a split rather than writing one description that papers over it.
 - Never invent test results. If you cannot tell what was run, write "Not verified" and say why.
+- If the diff contains a credential — an API key, token, connection string, or private key — stop
+  and tell the user instead of writing the description. A PR body is a bad place to first mention a
+  leaked secret, and it will be indexed the moment the PR opens.
