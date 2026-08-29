@@ -1,0 +1,263 @@
+name: Skill scan
+
+# Supply-chain gate for the org marketplace. Every plugin that changes in a PR
+# is scanned by NVIDIA SkillSpector before it can reach main.
+#
+#   exit 0 -> risk_score <= 50 (SAFE / CAUTION)   -> pass, auto-merge armed
+#   exit 1 -> risk_score >  50 (DO_NOT_INSTALL)   -> block
+#   exit 2 -> scanner error                        -> block (fail closed)
+#
+# Findings are uploaded as SARIF 2.1.0 and surface in Security -> Code scanning.
+# Guidance: https://owasp.org/www-project-agentic-skills-top-10/skill-scanner-integration
+
+on:
+  pull_request:
+    paths:
+      - 'plugins/**'
+      - '.claude-plugin/marketplace.json'
+      - 'tests/fixtures/**'
+      - '.github/workflows/skill-scan.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/**'
+
+# Least privilege by default; each job opts into exactly what it needs.
+permissions: {}
+
+concurrency:
+  group: skill-scan-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned release. Bumping this is a security-reviewed change - see CODEOWNERS.
+  SKILLSPECTOR_VERSION: v2.11.0
+
+jobs:
+  discover:
+    name: Discover changed plugins
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      plugins: ${{ steps.list.outputs.plugins }}
+      any: ${{ steps.list.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: list
+        name: List plugins to scan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            # Only what this PR touches: added, copied, modified, renamed.
+            changed=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- plugins/ || true)
+          else
+            changed=$(find plugins -mindepth 1 -maxdepth 1 -type d || true)
+          fi
+
+          # plugins/<name>/... -> <name>
+          names=$(printf '%s\n' "$changed" \
+            | grep -E '^plugins/[^/]+' -o \
+            | sed 's|^plugins/||' \
+            | sort -u)
+
+          if [ -z "$names" ]; then
+            echo "plugins=[]" >> "$GITHUB_OUTPUT"
+            echo "any=false"  >> "$GITHUB_OUTPUT"
+            echo "No plugin changes; nothing to scan."
+            exit 0
+          fi
+
+          json=$(printf '%s\n' "$names" | jq -R . | jq -sc .)
+          echo "plugins=$json" >> "$GITHUB_OUTPUT"
+          echo "any=true"      >> "$GITHUB_OUTPUT"
+          echo "Will scan: $json"
+
+  scan:
+    name: Scan ${{ matrix.plugin }}
+    needs: discover
+    if: needs.discover.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # required to upload SARIF
+    strategy:
+      fail-fast: false          # scan every plugin, report all findings at once
+      matrix:
+        plugin: ${{ fromJSON(needs.discover.outputs.plugins) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install SkillSpector ${{ env.SKILLSPECTOR_VERSION }}
+        run: |
+          set -euo pipefail
+          pipx install \
+            "skillspector @ git+https://github.com/NVIDIA/SkillSpector.git@${SKILLSPECTOR_VERSION}"
+          skillspector --version
+
+      - name: Scan
+        id: scan
+        env:
+          PLUGIN: ${{ matrix.plugin }}
+          # Gemini through its OpenAI-compatible endpoint. Note the dedicated
+          # SKILLSPECTOR_COMPAT_* names - this provider deliberately does NOT
+          # read OPENAI_API_KEY / OPENAI_BASE_URL.
+          SKILLSPECTOR_PROVIDER: openai_compatible
+          SKILLSPECTOR_COMPAT_API_KEY: ${{ secrets.SKILLSPECTOR_COMPAT_API_KEY }}
+          SKILLSPECTOR_COMPAT_BASE_URL: ${{ vars.SKILLSPECTOR_COMPAT_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai/' }}
+          SKILLSPECTOR_MODEL: ${{ vars.SKILLSPECTOR_MODEL }}
+        run: |
+          set -uo pipefail
+          target="plugins/${PLUGIN}"
+
+          # Secrets are unavailable to fork PRs, so this legitimately runs
+          # static-only there. A missing semantic pass must never mean a missing
+          # gate: the exit-code policy below still runs and still blocks.
+          llm_flag="--no-llm"
+          if [ -n "${SKILLSPECTOR_COMPAT_API_KEY:-}" ]; then
+            llm_flag=""
+            echo "LLM semantic analysis: enabled (${SKILLSPECTOR_MODEL:-provider default} via ${SKILLSPECTOR_COMPAT_BASE_URL})"
+          else
+            echo "LLM semantic analysis: disabled (no SKILLSPECTOR_COMPAT_API_KEY) - static analysis only"
+          fi
+
+          baseline=""
+          if [ -f .skillspector-baseline.yaml ]; then
+            baseline="--baseline .skillspector-baseline.yaml"
+            echo "Baseline suppressions: .skillspector-baseline.yaml"
+          fi
+
+          # SARIF for code scanning; markdown for the human reading the PR.
+          skillspector scan "$target" $llm_flag $baseline \
+            --format sarif -o "skillspector.sarif"
+          code=$?
+          skillspector scan "$target" $llm_flag $baseline \
+            --format markdown -o "skillspector.md" || true
+
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          {
+            echo "## SkillSpector: \`${PLUGIN}\`"
+            echo
+            cat skillspector.md 2>/dev/null || echo "_No markdown report produced._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload SARIF to code scanning
+        # Fork PRs cannot write security events; the gate below still blocks them.
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: skillspector.sarif
+          category: skillspector-${{ matrix.plugin }}
+
+      - name: Retain report (audit log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skillspector-${{ matrix.plugin }}
+          path: |
+            skillspector.sarif
+            skillspector.md
+          retention-days: 90
+
+      - name: Enforce policy
+        env:
+          CODE: ${{ steps.scan.outputs.exit_code }}
+          PLUGIN: ${{ matrix.plugin }}
+        run: |
+          set -euo pipefail
+          case "$CODE" in
+            0) echo "PASS: ${PLUGIN} scored SAFE or CAUTION (risk_score <= 50)." ;;
+            1) echo "::error title=Skill scan blocked::${PLUGIN} scored DO_NOT_INSTALL (risk_score > 50). See Security -> Code scanning."
+               exit 1 ;;
+            *) echo "::error title=Skill scan errored::SkillSpector exited ${CODE} on ${PLUGIN}. Failing closed."
+               exit 1 ;;
+          esac
+
+  gate-selftest:
+    name: Gate self-test (must block known-bad)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install SkillSpector ${{ env.SKILLSPECTOR_VERSION }}
+        run: |
+          set -euo pipefail
+          pipx install \
+            "skillspector @ git+https://github.com/NVIDIA/SkillSpector.git@${SKILLSPECTOR_VERSION}"
+
+      # Inverted assertion. A green build proves the scanner finds what is there;
+      # only this proves it is still capable of finding anything at all. A
+      # misconfigured or silently degraded scanner passes everything, and every
+      # PASS in this repo becomes meaningless. No SARIF upload - these findings
+      # are intentional and must not enter the repo's code scanning state.
+      - name: Expect DO_NOT_INSTALL on the known-bad fixture
+        run: |
+          set -uo pipefail
+          skillspector scan tests/fixtures/known-bad --no-llm --format markdown -o selftest.md
+          code=$?
+
+          {
+            echo "## Gate self-test"
+            echo
+            echo "SkillSpector exited \`${code}\` on \`tests/fixtures/known-bad\` (expected \`1\`)."
+            echo
+            cat selftest.md 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          case "$code" in
+            1) echo "OK: the gate blocks a known-bad skill." ;;
+            0) echo "::error title=GATE IS BROKEN::SkillSpector passed a deliberately malicious skill (exit 0). Every PASS in this repo is untrustworthy until this is fixed. Do not merge."
+               exit 1 ;;
+            *) echo "::error title=Self-test errored::SkillSpector exited ${code}; expected 1. Failing closed."
+               exit 1 ;;
+          esac
+
+  automerge:
+    name: Arm auto-merge
+    needs: [discover, scan, gate-selftest]
+    # `needs.gate-selftest` must use bracket syntax: a hyphen in a property
+    # dereference is parsed as subtraction by the expression engine.
+    # `scan` is legitimately skipped when a PR touches no plugin (e.g. fixtures
+    # or marketplace metadata only), so 'skipped' is a pass here - but the
+    # self-test is not optional and must be 'success'.
+    if: >-
+      github.event_name == 'pull_request' &&
+      (needs.scan.result == 'success' || needs.scan.result == 'skipped') &&
+      needs['gate-selftest'].result == 'success' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # This ARMS GitHub auto-merge; it does not bypass anything. The PR still
+      # merges only once branch protection is satisfied - which for this repo
+      # means CODEOWNERS approval plus every required check green.
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr merge --auto --squash "$PR" --repo "$GITHUB_REPOSITORY"

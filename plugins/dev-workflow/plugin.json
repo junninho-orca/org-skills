@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "dev-workflow",
+  "version": "0.1.0",
+  "description": "Everyday engineering workflow skills: PR descriptions and release notes generated from the actual diff.",
+  "author": {
+    "name": "Example Org Platform Team",
+    "email": "platform@example.com"
+  },
+  "homepage": "https://github.com/example-org/org-skills/tree/main/plugins/dev-workflow",
+  "repository": "https://github.com/example-org/org-skills",
+  "license": "Apache-2.0",
+  "keywords": ["git", "pull-request", "release-notes", "changelog"]
+}

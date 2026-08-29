@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "incident-response",
+  "version": "0.1.0",
+  "description": "Incident response skills: build a timeline from logs and draft a blameless postmortem in the org template.",
+  "author": {
+    "name": "Example Org SRE",
+    "email": "sre@example.com"
+  },
+  "homepage": "https://github.com/example-org/org-skills/tree/main/plugins/incident-response",
+  "repository": "https://github.com/example-org/org-skills",
+  "license": "Apache-2.0",
+  "keywords": ["incident", "postmortem", "sre", "oncall"]
+}

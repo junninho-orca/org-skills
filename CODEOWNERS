@@ -1,0 +1,23 @@
+# Every change to this repo is a supply-chain change for every engineer
+# who has the marketplace installed. Review is not optional.
+
+# Default: platform team reviews everything.
+*                               @example-org/platform-team
+
+# The scanner and its policy gate what gets in. Security owns them,
+# and must co-approve any change that could weaken a rule.
+/docs/skill-policy.md           @example-org/security
+/.github/workflows/             @example-org/platform-team @example-org/security
+/CODEOWNERS                     @example-org/security
+# A suppression is a policy decision, not a build fix.
+/.skillspector-baseline.yaml    @example-org/security
+# Weakening the known-bad fixture disarms the gate self-test.
+/tests/fixtures/                @example-org/security
+
+# Marketplace membership is the trust boundary: adding an entry here is
+# what actually ships a plugin to the org.
+/.claude-plugin/marketplace.json @example-org/platform-team @example-org/security
+
+# Per-plugin owners.
+/plugins/dev-workflow/          @example-org/platform-team
+/plugins/incident-response/     @example-org/sre

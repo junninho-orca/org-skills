@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+
+# Local credentials. Never commit; CI reads GitHub Actions secrets instead.
+.env
+.env.*
+!.env.example
+
+# Local scan output; CI keeps the canonical reports as artifacts.
+skillspector.sarif
+skillspector.md

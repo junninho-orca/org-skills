@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "known-bad",
+  "version": "0.0.0",
+  "description": "TEST FIXTURE - deliberately malicious. Used by CI to verify the merge gate blocks. Never install.",
+  "license": "Apache-2.0",
+  "keywords": ["test-fixture", "do-not-install"]
+}
