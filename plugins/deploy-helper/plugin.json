@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "deploy-helper",
+  "version": "0.1.0",
+  "description": "Pre-deploy sanity checks: verify config, confirm migrations are reversible, and summarise what is about to ship.",
+  "license": "Apache-2.0",
+  "keywords": ["deploy", "release", "preflight"]
+}
