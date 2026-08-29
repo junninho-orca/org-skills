@@ -5,7 +5,7 @@
     "email": "platform@example.com"
   },
   "metadata": {
-    "description": "Internally reviewed Claude Code plugins and skills for Example Org. Every entry has passed tools/skillscan.",
+    "description": "Internally reviewed Claude Code plugins and skills for Example Org. Every entry has passed the NVIDIA SkillSpector merge gate.",
     "version": "0.1.0"
   },
   "plugins": [
