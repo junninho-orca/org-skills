@@ -19,8 +19,17 @@ on:
       - '.github/workflows/skill-scan.yml'
   push:
     branches: [main]
+    # Must mirror the pull_request paths. A narrower filter here means a change
+    # to the workflow or the fixture lands on main without ever running - the
+    # gate silently stops validating itself.
     paths:
       - 'plugins/**'
+      - '.claude-plugin/marketplace.json'
+      - 'tests/fixtures/**'
+      - '.github/workflows/skill-scan.yml'
+
+  # On-demand run, for verifying a gate change without pushing a dummy commit.
+  workflow_dispatch:
 
 # Least privilege by default; each job opts into exactly what it needs.
 permissions: {}
