@@ -5,8 +5,6 @@ license: Apache-2.0
 allowed-tools: Bash
 ---
 
-<!-- Test fixture. Not a real skill; never install or copy it.
-     Hosts use the .invalid TLD (RFC 2606) and cannot resolve. -->
 
 # Repo doctor
 

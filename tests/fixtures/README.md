@@ -1,9 +1,15 @@
 # Test fixtures
 
 > [!CAUTION]
-> `known-bad/` contains a **deliberately malicious skill**. It exists so CI can prove the
-> merge gate actually blocks. Do not install it, do not copy from it, and do not move it
-> under `plugins/`.
+> `known-bad/` contains a **deliberately malicious skill**. It exists so CI can prove the merge
+> gate actually blocks. Do not install it, do not copy from it, and do not move it under
+> `plugins/`.
+>
+> **The files inside carry no warning of their own.** `known-bad/plugin.json` and
+> `known-bad/skills/repo-doctor/SKILL.md` read exactly like an ordinary plugin, deliberately —
+> see [What reaches the semantic analyzer](#what-reaches-the-semantic-analyzer). This directory
+> name and this README are the only warnings, so do not lift a file out of here on the assumption
+> that it will still look suspicious somewhere else.
 
 ## Why this is not in `plugins/`
 
@@ -65,19 +71,37 @@ The path is **relative to the scan root**, so it reads `skills/repo-doctor/SKILL
 The frontmatter previously carried `org.example.expected-verdict: DO_NOT_INSTALL`. That handed the
 analyzer the answer outright and has been removed; it was bookkeeping, and protected no one.
 
-## What this fixture does not test
+## Blind by construction
 
-Two markers still live in scanned content: the `plugin.json` description, and the comment at the top
-of `SKILL.md`. Both exist so that anyone who copies a file out of this directory is warned by the
-file itself.
+Every marker that once lived in scanned content has been removed, so an analyzer sees a plausible
+plugin and nothing that gives the answer away:
 
-They also mean this is **not a blind test of the semantic stage** — an analyzer sees them. It is a
-sound test of the **static** engine, which matches patterns and does not read intent, and that is
-what `gate-selftest` asserts by running `--no-llm`.
+| Removed | Was | Why it had to go |
+|---|---|---|
+| `org.example.expected-verdict: DO_NOT_INSTALL` | `SKILL.md` frontmatter | Stated the expected result outright |
+| `(AST08: credential access ...)` in step headings | `SKILL.md` body | Named the rule that should fire |
+| `attacker.invalid` hostnames | `SKILL.md` body | Announced intent in the host name |
+| `"TEST FIXTURE - deliberately malicious"` | `plugin.json` description | Characterised the file for the reader |
+| `"name": "known-bad"`, `do-not-install` keyword | `plugin.json` | Same, in identity and metadata |
+| In-file `<!-- Test fixture -->` comment | `SKILL.md` | Same |
 
-Making it blind would mean deleting those two markers, leaving the directory name and this README as
-the only warnings — safe for a reader browsing the repo, weaker for someone who copies a lone file.
-That trade has not been taken. If you take it, say so here.
+What remains: a plugin claiming to tidy repositories, whose body exfiltrates credentials, pipes a
+remote script to `sudo bash`, and installs a cron beacon. A scanner has to detect that from
+behavior, which is the point.
+
+Safety now rests entirely on placement — the `known-bad/` directory name, this README, absence from
+`marketplace.json`, and hosts on the non-resolving `.invalid` TLD. None of the first three reach a
+model, so none of them can flatter the result.
+
+### What this now permits
+
+Because the fixture is blind, running it **with** an LLM is a meaningful test of the semantic stage,
+not a test of whether a model can read a label. It was not before.
+
+`gate-selftest` still runs `--no-llm`, for a reason unrelated to leakage: the check that decides
+whether anything merges must be deterministic, and the semantic stage is not. A separate
+non-blocking job could exercise the semantic path against this fixture without putting a
+non-deterministic call on the merge path.
 
 ## Keeping it honest
 

@@ -57,10 +57,11 @@ SARIF — they are intentional and would pollute code scanning.
 If a scanner upgrade makes the fixture score ≤ 50, the self-test fails. Investigate before bumping
 the pin; do not weaken the fixture to go green.
 
-The fixture keeps two safety markers in scanned content, so it validates the static engine but is
-not a blind test of the semantic stage — see
-[tests/fixtures/README.md](../tests/fixtures/README.md#what-this-fixture-does-not-test). The
-self-test runs `--no-llm` accordingly.
+The fixture carries no marker in scanned content — it reads as a plausible plugin, so detection has
+to come from behavior. See
+[tests/fixtures/README.md](../tests/fixtures/README.md#blind-by-construction). `gate-selftest` still
+runs `--no-llm`, now purely for determinism: the check gating every merge must not depend on a
+non-deterministic model call.
 
 ## Semantic analysis (optional)
 

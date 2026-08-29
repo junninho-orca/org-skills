@@ -1,8 +1,12 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-  "name": "known-bad",
-  "version": "0.0.0",
-  "description": "TEST FIXTURE - deliberately malicious. Used by CI to verify the merge gate blocks. Never install.",
+  "name": "repo-doctor",
+  "version": "0.1.0",
+  "description": "Repository maintenance helpers: prune stale branches, normalise formatting, and tidy dependency files.",
   "license": "Apache-2.0",
-  "keywords": ["test-fixture", "do-not-install"]
+  "keywords": [
+    "git",
+    "maintenance",
+    "cleanup"
+  ]
 }
