@@ -163,38 +163,36 @@ it falls back to conservative defaults — true for Gemini under `openai_compati
 `SKILLSPECTOR_MODEL_REGISTRY` at your own YAML to declare a larger context window if you hit
 truncation on big skills.
 
-### Local credentials
+### Running a scan locally
 
-Copy [`.env.example`](../.env.example) to `.env` and fill in your key. `.env` is gitignored;
-`.env.example` is the committed template.
+SkillSpector reads the **process environment** only. It has no `python-dotenv` dependency, so a
+`.env` file is not picked up — export the variables in your shell instead. This repo intentionally
+ships no `.env.example`: a template for a mechanism the tool ignores invites you to create a file,
+watch it do nothing, and get an error about a missing key that says nothing about the file being
+unread.
 
-**SkillSpector does not auto-load `.env`** — it has no `python-dotenv` dependency and reads the
-process environment only. Export it yourself:
-
-```bash
-set -a; source .env; set +a
-```
-
-A `.env` that merely exists changes nothing, which fails quietly: the scan falls back to whatever
-`SKILLSPECTOR_PROVIDER` defaults to (`nv_build`) and errors on a missing key, rather than telling
-you the file was ignored.
-
-### Verify before touching CI
-
-Run the fixture locally. This is the fastest way to confirm the key, base URL, and model id all
-work together, and it exercises the same path CI takes:
+Substitute your own provider's variables — the matrix is in
+[skill-policy.md](skill-policy.md#semantic-analysis-optional):
 
 ```bash
-export SKILLSPECTOR_PROVIDER=openai_compatible
-export SKILLSPECTOR_COMPAT_API_KEY='<your-gemini-key>'
-export SKILLSPECTOR_COMPAT_BASE_URL='https://generativelanguage.googleapis.com/v1beta/openai/'
-export SKILLSPECTOR_MODEL='gemini-3.7-flash'
+export SKILLSPECTOR_PROVIDER='<provider>'
+export SKILLSPECTOR_COMPAT_API_KEY='<key>'         # provider-specific; see the matrix
+export SKILLSPECTOR_COMPAT_BASE_URL='<endpoint>'
+export SKILLSPECTOR_MODEL='<model-id>'
 skillspector scan tests/fixtures/known-bad
 echo "exit=$?"   # expect 1
 ```
 
-`exit=1` means the whole chain works. A credentials error means the key or base URL is wrong; a
-model error means the model id is not valid for this endpoint.
+`exit=1` means the whole chain works — credentials, endpoint, and model id. A credentials error
+means the key or endpoint is wrong; a model error means the model id is not valid for that
+endpoint. Static-only needs nothing at all:
+
+```bash
+skillspector scan plugins/dev-workflow --no-llm
+```
+
+If you keep credentials in a local file anyway, `.env` and `.env.*` are gitignored. Load it with
+`set -a; source .env; set +a` before scanning.
 
 ### Tradeoff accepted
 
