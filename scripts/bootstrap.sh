@@ -118,6 +118,26 @@ for f in files:
             if line.startswith(sec_paths) and sec_owner not in line:
                 line = re.sub(r"@\S+.*$", sec_owner, line)
             out.append(line)
+        # The upstream header explains that every rule points at one account
+        # because this repo has no teams. Once the two owners differ that is
+        # false, and it contradicts the rules printed directly beneath it.
+        if sec_owner != owner:
+            keep, drop = [], False
+            for line in out:
+                if line.startswith("# NOTE: this repo currently lives"):
+                    drop = True
+                    while keep and keep[-1].strip() == "#":
+                        keep.pop()
+                    keep.append("#")
+                    keep.append("# Security-owned paths below are owned by a different team than the")
+                    keep.append("# plugin paths, so a plugin author cannot approve the policy that gates")
+                    keep.append("# their own change.")
+                if drop:
+                    if "is not a control." in line:
+                        drop = False
+                    continue
+                keep.append(line)
+            out = keep
         t = "\n".join(out) + "\n"
     if t != orig:
         n = sum(1 for a, b in zip(orig.splitlines(), t.splitlines()) if a != b)
@@ -195,16 +215,20 @@ Remaining steps this script cannot do for you:
 
   1. Replace the example plugins under plugins/ with your own, and update
      .claude-plugin/marketplace.json to match.
-  2. Optional - enable semantic analysis. Any provider works; static analysis
+  2. Optional - send findings to Security -> Code scanning. Off by default,
+     because it needs GitHub Advanced Security on a private repo and would
+     only 403 otherwise:
+       gh variable set SKILLSPECTOR_UPLOAD_SARIF --body true
+  3. Optional - enable semantic analysis. Any provider works; static analysis
      needs no credentials at all:
        gh variable set SKILLSPECTOR_PROVIDER --body <provider>
        gh variable set SKILLSPECTOR_MODEL    --body <model-id>
        gh secret   set <PROVIDER_CREDENTIAL>
      Full matrix: docs/skill-policy.md. If you configure a model, re-run this
      script with --model so its token budget is declared.
-  3. plugins/incident-response/mcp.json points at https://mcp.example.com -
+  4. plugins/incident-response/mcp.json points at https://mcp.example.com -
      an illustrative endpoint, left alone deliberately rather than rewritten
      to a host that would not resolve. Change it or drop the plugin.
-  4. Keep tests/fixtures/known-bad/ - it is what proves the gate still works.
+  5. Keep tests/fixtures/known-bad/ - it is what proves the gate still works.
 
 NEXT

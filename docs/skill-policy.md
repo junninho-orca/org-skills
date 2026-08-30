@@ -4,9 +4,19 @@ What has to be true before a plugin is installable by the org.
 
 ## The gate
 
-Every PR touching `plugins/` or the marketplace manifest is scanned by [NVIDIA SkillSpector](https://github.com/NVIDIA/SkillSpector),
-pinned to `v2.11.0` in [`skill-scan.yml`](../.github/workflows/skill-scan.yml). One scan per changed
-plugin, so one bad plugin does not mask a clean one.
+[`skill-scan.yml`](../.github/workflows/skill-scan.yml) runs on **every** pull request and scans
+each plugin the PR changed with [NVIDIA SkillSpector](https://github.com/NVIDIA/SkillSpector),
+pinned to `v2.11.0`. One scan per changed plugin, so one bad plugin does not mask a clean one.
+
+It runs on every PR rather than filtering on `paths:` because `Gate` is a required check, and a
+workflow skipped by path filtering never reports its checks — GitHub leaves them pending and the PR
+cannot merge. A PR that changed no plugin is short-circuited inside the workflow instead: nothing to
+scan, matrix skipped, `Gate` passes. See
+[SECURITY.md](SECURITY.md#why-the-gate-workflow-has-no-path-filter).
+
+The pins in `skill-scan.yml` and `scanner-health.yml` must match, and the `Scanner pin` step in
+`discover` fails the build if they drift — otherwise the gate and its own health check would be
+testing different scanners.
 
 SkillSpector emits a 0–100 risk score. We adopt its default bands as the merge gate:
 
@@ -19,6 +29,41 @@ SkillSpector emits a 0–100 risk score. We adopt its default bands as the merge
 | — | — | scanner error | 2 | **Blocked** — we fail closed |
 
 A scanner error blocks. An unscannable plugin is not a passing plugin.
+
+## The format gate
+
+Separate from the security gate, and it blocks too.
+
+SkillSpector judges whether a skill is *dangerous*. It does not check that `SKILL.md` is
+*well-formed*. Those are different failures with different symptoms: a skill whose frontmatter
+`name` disagrees with its directory, or that carries a field the spec does not allow, scans
+perfectly clean and then fails at install time on every machine that has the marketplace — or
+worse, silently never loads, and nobody notices the capability is missing.
+
+The `Validate skill format` job runs the Agent Skills spec's own reference implementation,
+[`skills-ref`](https://github.com/agentskills/agentskills/tree/main/skills-ref), pinned to `0.1.1`,
+over every skill in every changed plugin. Using upstream's validator rather than our own means
+"valid" is defined by the spec, not by our reading of it.
+
+| Exit | Meaning | Policy |
+|------|---------|--------|
+| 0 | Valid skill | Pass |
+| 1 | Validation errors | **Blocked** |
+| other | Could not validate (e.g. unreadable path) | **Blocked** — fail closed |
+
+Only `0` and `1` are documented upstream; `2` shows up for a path it cannot read. Anything that is
+not a clean `0` is treated as a failure to validate, which is not the same as a pass — the same
+posture the scanner gets.
+
+Two practical notes for anyone adopting this:
+
+- The PyPI distribution is named `skills-ref`, but the console script it installs is **`agentskills`**.
+  Upstream's README documents `skills-ref validate`, which does not exist in the published wheel.
+- It is a `0.1.x` package, so the pin is exact rather than a range: a minor bump can legitimately
+  change what counts as valid, and that is a decision to make deliberately rather than inherit.
+
+A plugin with no `skills/` directory is reported as a notice, not an error — a plugin that ships
+only MCP servers is legitimate.
 
 ## Auto-merge is not auto-approve
 
@@ -122,6 +167,11 @@ on fork PRs. Weigh that when deciding whether to accept plugin contributions fro
 The LLM stage is non-deterministic and can move a risk score between runs on unchanged input, so a
 re-run may flip a borderline result near the 50 boundary. The scanner health check deliberately stays on
 `--no-llm` so the gate's own health check cannot flake.
+
+For the same reason the gate takes its verdict and its human-readable report from a **single**
+SkillSpector invocation. Running the scan twice — once for the report, once for SARIF — could show a
+reviewer a `CAUTION` summary on a job that blocked at 52. The optional SARIF run is the only second
+invocation, and its exit code is ignored.
 
 ## Suppressions
 

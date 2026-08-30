@@ -2,7 +2,7 @@
 name: pr-description
 description: Writes a pull request title and description from the actual diff against the base branch, following the org PR template. Use when opening a PR, when asked to "write a PR description", "summarize my changes for review", or when a PR body is empty or stale.
 license: Apache-2.0
-allowed-tools: Bash(git diff:*) Bash(git log:*) Bash(git status:*) Read
+allowed-tools: Bash(git diff:*) Bash(git log:*) Bash(git symbolic-ref:*) Read
 metadata:
   org.example.owner: platform-team
   org.example.review-tier: standard

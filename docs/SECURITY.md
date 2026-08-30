@@ -12,7 +12,10 @@ image.
 | Control | Where |
 |---------|-------|
 | Every changed plugin scanned before merge | [`skill-scan.yml`](../.github/workflows/skill-scan.yml) |
+| Every changed skill validated against the spec | `Validate skill format` job — `skills-ref` |
+| Pinned validator version | `SKILLS_REF_VERSION`, in both workflows |
 | Scheduled proof the scanner still detects | [`scanner-health.yml`](../.github/workflows/scanner-health.yml) |
+| Proof the fixture is still a *valid* skill | `The fixture must be a valid skill` step |
 | Fail closed on scanner error | `Enforce policy` step — exit `2` blocks |
 | Human approval before merge | [`CODEOWNERS`](../CODEOWNERS) + branch protection |
 | Pinned scanner version | `SKILLSPECTOR_VERSION`, identical in both workflows |
@@ -20,7 +23,29 @@ image.
 | Least-privilege CI | top-level `permissions: {}`, per-job opt-in, `persist-credentials: false` |
 | Ephemeral scan environment | GitHub-hosted runners, fresh per job |
 | 90-day retained reports | `actions/upload-artifact` — audit trail |
-| Findings as SARIF | `github/codeql-action/upload-sarif` — see [entitlement](#code-scanning-entitlement) |
+| Findings in job summary + 90-day artifact | Always, on every scan — the audit record |
+| Optional SARIF to code scanning | `SKILLSPECTOR_UPLOAD_SARIF` — see [entitlement](#code-scanning-entitlement) |
+| `Gate` reports on every PR | No `paths:` filter — see [required checks](#why-the-gate-workflow-has-no-path-filter) |
+
+## Why the gate workflow has no path filter
+
+[`skill-scan.yml`](../.github/workflows/skill-scan.yml) triggers on every pull request, with no
+`paths:` filter, and decides internally whether there is anything to scan.
+
+That is deliberate, and it is the same trap described below for `Scanner health`. A workflow
+skipped by path filtering does not report its checks as passed — GitHub leaves them *Expected —
+waiting for status to be reported*, and a pull request requiring them can never merge. With a
+`paths:` filter on `plugins/**`, a PR touching only `docs/`, `README.md`, `CODEOWNERS` or
+`scripts/` would be blocked forever.
+
+So the workflow always runs, and the `discover` job short-circuits when the diff touched no
+plugin: it emits `any=false`, the scan matrix is skipped, and `Gate` treats a skipped matrix as a
+pass. That costs about twenty seconds on an unrelated PR and buys a required check that always
+reports.
+
+The one thing `discover` will not do is guess. If it cannot compute the changed set — an unfetched
+base commit, a force-push race — it fails the job rather than reporting an empty set, because
+"nothing changed" and "I could not tell what changed" must not look the same to a merge gate.
 
 ## Required branch protection on `main`
 
@@ -140,20 +165,39 @@ gitignored — load it with `set -a; source .env; set +a` first.
 
 ## Code scanning entitlement
 
-SARIF upload is **non-fatal**. On a private repository GitHub code scanning requires GitHub Advanced
-Security; without it the API returns `403 Code scanning is not enabled`, and the upload step logs a
-failure without blocking the gate. That is deliberate — a missing reporting surface is not a
-security failure, and the verdict, job summary, and retained artifact are unaffected.
+SARIF upload is **off by default**, and enabling it is a repository-settings change:
 
-The consequence worth knowing: **a green run does not prove SARIF uploaded.** To get findings into
-the Security tab, either move the repo to an org with GHAS, or make it public (code scanning is free
-for public repos). Otherwise read findings from the job summary or the `skillspector-<plugin>`
-artifact.
+```bash
+gh variable set SKILLSPECTOR_UPLOAD_SARIF --body true
+```
+
+It defaults off because on a private repository GitHub code scanning requires GitHub Advanced
+Security, and without it the API returns `403 Code scanning is not enabled` on every run. Shipping
+that as the default meant most adopters' first experience of this gate was a permanently red-ish
+step they had to read the docs to dismiss. Enable it if you have GHAS, or if the repo is public
+(code scanning is free for public repos).
+
+Nothing about the gate depends on it. The verdict, the job summary, and the 90-day artifact are
+produced either way — those are the audit record.
+
+Two consequences worth knowing:
+
+- **A green run does not prove SARIF uploaded.** The step is `continue-on-error`, because a missing
+  reporting surface is not a security failure.
+- **Enabling it costs a second scan.** SkillSpector is invoked once per output format, so the SARIF
+  report requires its own run — and with the semantic pass enabled, its own set of model calls. The
+  markdown run is the authoritative one: the exit code the gate enforces and the report a reviewer
+  reads come from the same invocation, so they can never disagree.
+
+The `security-events: write` permission stays declared on the scan job even when the upload is off,
+because job `permissions:` cannot be made conditional. Keeping it there is what allows enabling code
+scanning to be a settings change rather than a workflow edit.
 
 ## Fork PRs
 
 Fork PRs run with a read-only token. They cannot read repository secrets and cannot write security
-events, so they scan static-only and skip the SARIF upload. The gate still runs and still blocks.
+events, so they scan static-only and skip the SARIF upload even where it is enabled. The gate still
+runs and still blocks.
 
 That is a real coverage difference, not just a degraded log line: the description-vs-behavior
 mismatch check does not run on fork PRs. Weigh it when deciding whether to accept plugin

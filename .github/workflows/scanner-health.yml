@@ -40,8 +40,12 @@ concurrency:
 
 env:
   # Must match skill-scan.yml. Bumping either without the other means the gate
-  # and its health check are testing different scanners.
+  # and its health check are testing different scanners. The `Scanner pin` step
+  # in skill-scan.yml enforces that they agree.
   SKILLSPECTOR_VERSION: v2.11.0
+
+  # Reference validator for the Agent Skills spec.
+  SKILLS_REF_VERSION: 0.1.1
 
 jobs:
   scanner-health:
@@ -64,6 +68,30 @@ jobs:
           pipx install \
             "skillspector @ git+https://github.com/NVIDIA/SkillSpector.git@${SKILLSPECTOR_VERSION}"
 
+      - name: Install skills-ref ${{ env.SKILLS_REF_VERSION }}
+        run: |
+          set -euo pipefail
+          # Published as `skills-ref`; the console script is `agentskills`.
+          pipx install "skills-ref==${SKILLS_REF_VERSION}"
+          agentskills --version
+
+      # The fixture has to be a WELL-FORMED skill, not merely a file the scanner
+      # dislikes. If it were malformed, SkillSpector could reject it for the
+      # wrong reason and this check would still go green while proving nothing
+      # about detection. Asserting validity first makes the claim below
+      # specific: a plugin the spec accepts, that the scanner refuses anyway.
+      #
+      # It also keeps tests/fixtures/README.md honest about the fixture being
+      # "blind by construction" - one that no longer parses as a plausible
+      # plugin has stopped being blind.
+      - name: The fixture must be a valid skill
+        run: |
+          set -euo pipefail
+          for skill in tests/fixtures/known-bad/skills/*/; do
+            echo "Validating ${skill%/}"
+            agentskills validate "${skill%/}"
+          done
+
       # Inverted assertion: this fixture MUST fail. Static-only, so the result is
       # deterministic and needs no credentials - a health check that can flake is
       # not one. See tests/fixtures/README.md.
@@ -84,7 +112,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           case "$code" in
-            1) echo "OK: the scanner still detects a malicious skill." ;;
+            1) echo "OK: the scanner still detects a malicious skill - one that the Agent Skills validator accepts as well-formed." ;;
             0) echo "::error title=SCANNER IS NOT DETECTING::SkillSpector passed a deliberately malicious skill (exit 0). Every PASS from the merge gate is untrustworthy until this is fixed."
                exit 1 ;;
             *) echo "::error title=Scanner health check errored::SkillSpector exited ${code}; expected 1."

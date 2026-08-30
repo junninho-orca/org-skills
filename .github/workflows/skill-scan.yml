@@ -7,24 +7,27 @@ name: Skill scan
 #   exit 1 -> risk_score >  50 (DO_NOT_INSTALL)   -> block
 #   exit 2 -> scanner error                        -> block (fail closed)
 #
-# Findings are uploaded as SARIF 2.1.0 and surface in Security -> Code scanning.
+# Findings go to the job summary and a retained artifact. SARIF upload to
+# Security -> Code scanning is opt-in; see SKILLSPECTOR_UPLOAD_SARIF below.
 # Guidance: https://owasp.org/www-project-agentic-skills-top-10/skill-scanner-integration
 
 on:
+  # Deliberately NO `paths:` filter, on either event.
+  #
+  # `Gate` is the required status check. A workflow skipped by path filtering
+  # never reports its checks - GitHub leaves them "Expected - waiting for status
+  # to be reported" and the pull request can never merge. With a filter here, a
+  # PR touching only docs/, README.md, CODEOWNERS or scripts/ would be blocked
+  # forever.
+  #
+  # So the workflow always runs and `discover` short-circuits when no plugin
+  # changed: `any=false`, the scan matrix is skipped, and Gate treats that as a
+  # pass. It costs about twenty seconds on an unrelated PR and removes a whole
+  # class of filter-drift bugs, including the previous requirement that the two
+  # events' path lists be kept in sync by hand.
   pull_request:
-    paths:
-      - 'plugins/**'
-      - '.claude-plugin/marketplace.json'
-      - '.github/workflows/skill-scan.yml'
   push:
     branches: [main]
-    # Must mirror the pull_request paths. A narrower filter here means a change
-    # to the workflow or the fixture lands on main without ever running - the
-    # gate silently stops validating itself.
-    paths:
-      - 'plugins/**'
-      - '.claude-plugin/marketplace.json'
-      - '.github/workflows/skill-scan.yml'
 
   # On-demand run, for verifying a gate change without pushing a dummy commit.
   workflow_dispatch:
@@ -38,7 +41,12 @@ concurrency:
 
 env:
   # Pinned release. Bumping this is a security-reviewed change - see CODEOWNERS.
+  # Must match scanner-health.yml; the `Scanner pin` step below enforces that.
   SKILLSPECTOR_VERSION: v2.11.0
+
+  # Reference validator for the Agent Skills spec. Pinned exactly: this is a
+  # 0.1.x package, so a minor bump can legitimately change what counts as valid.
+  SKILLS_REF_VERSION: 0.1.1
 
 jobs:
   discover:
@@ -55,6 +63,32 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # docs/SECURITY.md lists "pinned scanner version, identical in both
+      # workflows" as a control. A comment asking for that is not a control;
+      # this is. Bumping one pin without the other means the gate and its own
+      # health check are testing different scanners.
+      - name: Tool pins match scanner-health
+        run: |
+          set -euo pipefail
+          pin() { awk -v k="^  $2:" '$0 ~ k {print $2; exit}' "$1"; }
+          fail=0
+          for key in SKILLSPECTOR_VERSION SKILLS_REF_VERSION; do
+            gate=$(pin .github/workflows/skill-scan.yml   "$key")
+            health=$(pin .github/workflows/scanner-health.yml "$key")
+            if [ -z "$gate" ] || [ -z "$health" ]; then
+              echo "::error title=Cannot read pin::Failed to parse ${key} from one of the workflows."
+              fail=1
+              continue
+            fi
+            if [ "$gate" != "$health" ]; then
+              echo "::error title=Pin mismatch::skill-scan.yml pins ${key}=${gate} but scanner-health.yml pins ${health}. The gate and its health check must use the same tools."
+              fail=1
+              continue
+            fi
+            echo "Both workflows pin ${key}=${gate}."
+          done
+          exit "$fail"
+
       - id: list
         name: List plugins to scan
         env:
@@ -65,21 +99,32 @@ jobs:
           set -euo pipefail
           if [ "$EVENT" = "pull_request" ]; then
             # Only what this PR touches: added, copied, modified, renamed.
-            changed=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- plugins/ || true)
+            # NOT `|| true` - a diff that fails (unfetched base, force-push
+            # race) would otherwise look identical to a PR that changed no
+            # plugin, and we would scan nothing while reporting a pass.
+            if ! changed=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- plugins/); then
+              echo "::error title=Cannot determine changed plugins::git diff ${BASE_SHA}..${HEAD_SHA} failed. Failing closed rather than scanning nothing."
+              exit 1
+            fi
           else
-            changed=$(find plugins -mindepth 1 -maxdepth 1 -type d || true)
+            changed=$(find plugins -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true)
           fi
 
           # plugins/<name>/... -> <name>
+          #
+          # The trailing `|| true` is load-bearing: grep exits 1 when nothing
+          # matches, and under `pipefail` that killed the step before the
+          # empty-set branch below could run. That made a marketplace-only,
+          # workflow-only or plugin-deleting PR fail with an empty log.
           names=$(printf '%s\n' "$changed" \
-            | grep -E '^plugins/[^/]+' -o \
+            | grep -oE '^plugins/[^/]+' \
             | sed 's|^plugins/||' \
-            | sort -u)
+            | sort -u || true)
 
           if [ -z "$names" ]; then
             echo "plugins=[]" >> "$GITHUB_OUTPUT"
             echo "any=false"  >> "$GITHUB_OUTPUT"
-            echo "No plugin changes; nothing to scan."
+            echo "No plugin changes; nothing to scan. The scan matrix is skipped and Gate passes."
             exit 0
           fi
 
@@ -88,6 +133,83 @@ jobs:
           echo "any=true"      >> "$GITHUB_OUTPUT"
           echo "Will scan: $json"
 
+  validate:
+    # Format gate, distinct from the security gate. SkillSpector judges whether a
+    # skill is dangerous; it does not check that SKILL.md is well-formed. A skill
+    # with a malformed frontmatter, a name that disagrees with its directory, or
+    # a field the spec does not allow scans clean and then fails on every
+    # engineer's machine at install time - or silently never loads.
+    #
+    # Uses the spec's own reference implementation, so "valid" means what
+    # agentskills.io says it means rather than what we think it means.
+    name: Validate skill format
+    needs: discover
+    if: needs.discover.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install skills-ref ${{ env.SKILLS_REF_VERSION }}
+        run: |
+          set -euo pipefail
+          pipx install "skills-ref==${SKILLS_REF_VERSION}"
+          # The PyPI distribution is named `skills-ref` but installs a console
+          # script called `agentskills`. The upstream README documents
+          # `skills-ref validate`, which does not exist in the published wheel.
+          agentskills --version
+
+      - name: Validate every skill in the changed plugins
+        env:
+          PLUGINS: ${{ needs.discover.outputs.plugins }}
+        run: |
+          set -uo pipefail
+          fail=0
+          checked=0
+
+          for plugin in $(printf '%s' "$PLUGINS" | jq -r '.[]'); do
+            dir="plugins/${plugin}/skills"
+            if [ ! -d "$dir" ]; then
+              echo "::notice title=No skills directory::plugins/${plugin} has no skills/ directory. Nothing to validate."
+              continue
+            fi
+
+            found=0
+            for skill in "$dir"/*/; do
+              [ -f "${skill}SKILL.md" ] || continue
+              found=1
+              checked=$((checked + 1))
+              code=0
+              out=$(agentskills validate "${skill%/}" 2>&1) || code=$?
+              case "$code" in
+                0) echo "ok      ${skill%/}" ;;
+                1) echo "::error title=Invalid skill::${skill%/} does not conform to the Agent Skills spec."
+                   printf '%s\n' "$out"
+                   fail=1 ;;
+                # `validate` documents only 0 and 1, but returns 2 for an
+                # unreadable path. Treat every other code as a failure to
+                # validate, which is not the same as a pass.
+                *) echo "::error title=Validator errored::agentskills exited ${code} on ${skill%/}. Failing closed."
+                   printf '%s\n' "$out"
+                   fail=1 ;;
+              esac
+            done
+
+            if [ "$found" -eq 0 ]; then
+              echo "::notice title=No skills found::plugins/${plugin}/skills contains no SKILL.md."
+            fi
+          done
+
+          echo "Validated ${checked} skill(s) against agentskills.io."
+          exit "$fail"
+
   scan:
     name: Scan ${{ matrix.plugin }}
     needs: discover
@@ -95,7 +217,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write   # required to upload SARIF
+      # Job `permissions:` cannot be conditional, so this is granted even though
+      # the SARIF upload is off by default. It is only exercised when
+      # SKILLSPECTOR_UPLOAD_SARIF is 'true'; keeping it here means enabling code
+      # scanning stays a repository-settings change rather than a workflow edit.
+      security-events: write
       id-token: write          # only used when the bedrock provider is configured
     strategy:
       fail-fast: false          # scan every plugin, report all findings at once
@@ -136,6 +262,7 @@ jobs:
         env:
           PLUGIN: ${{ matrix.plugin }}
           AWS_OUTCOME: ${{ steps.aws.outcome }}
+          UPLOAD_SARIF: ${{ vars.SKILLSPECTOR_UPLOAD_SARIF }}
 
           # Provider-agnostic pass-through. Set SKILLSPECTOR_PROVIDER as a repo
           # variable and supply only that provider's credentials; the rest stay
@@ -209,15 +336,29 @@ jobs:
             echo "Baseline suppressions: .skillspector-baseline.yaml"
           fi
 
-          # SARIF for code scanning; markdown for the human reading the PR.
+          # ONE authoritative scan. The markdown report and the enforced exit
+          # code come from the same invocation, so the summary a reviewer reads
+          # can never disagree with the verdict - which it could when this ran
+          # the scan twice and the semantic pass returned a different score.
+          #
           # GitHub's default shell is `bash -e`; `set +o errexit` above does not
           # survive that, and a plain `cmd; code=$?` dies before the assignment.
           # `|| code=$?` is checked context, so errexit stays suppressed.
           code=0
           skillspector scan "$target" $llm_flag $baseline \
-            --format sarif -o "skillspector.sarif" || code=$?
-          skillspector scan "$target" $llm_flag $baseline \
-            --format markdown -o "skillspector.md" || true
+            --format markdown -o "skillspector.md" || code=$?
+
+          # SARIF costs a second full scan (and, with the semantic pass on, a
+          # second set of model calls), so it is produced only when the upload
+          # is actually enabled. Its exit code is deliberately ignored: the run
+          # above is the verdict.
+          if [ "${UPLOAD_SARIF:-}" = "true" ]; then
+            echo "SARIF: enabled - running a second scan for code scanning."
+            skillspector scan "$target" $llm_flag $baseline \
+              --format sarif -o "skillspector.sarif" || true
+          else
+            echo "SARIF: disabled (set the SKILLSPECTOR_UPLOAD_SARIF variable to 'true' to enable)."
+          fi
 
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           {
@@ -227,16 +368,22 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload SARIF to code scanning
-        # Skip only for FORK PRs, which cannot write security events. The old
-        # guard compared head.repo against the repository unconditionally, which
-        # is empty on `push` and silently skipped every upload on main.
+        # OFF BY DEFAULT. Code scanning needs GitHub Advanced Security on a
+        # private repo, so for most adopters this step could only ever 403. The
+        # verdict, job summary and retained artifact do not depend on it.
+        # Enable with a repository variable:
         #
-        # Non-fatal: code scanning requires GitHub Advanced Security on a private
-        # repo, and a missing entitlement is a reporting gap, not a security one.
-        # The gate does not depend on this step - findings are also in the job
-        # summary and the retained artifact. See docs/SECURITY.md.
+        #   gh variable set SKILLSPECTOR_UPLOAD_SARIF --body true
+        #
+        # Still skipped for FORK PRs, which cannot write security events. The
+        # `github.event_name != 'pull_request'` arm matters because head.repo is
+        # empty on `push`, which would otherwise skip every upload on main.
+        #
+        # continue-on-error: a missing reporting surface is not a security
+        # failure. See docs/SECURITY.md.
         if: >-
           always() &&
+          vars.SKILLSPECTOR_UPLOAD_SARIF == 'true' &&
           (github.event_name != 'pull_request' ||
            github.event.pull_request.head.repo.full_name == github.repository)
         continue-on-error: true
@@ -250,23 +397,31 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: skillspector-${{ matrix.plugin }}
+          # skillspector.sarif only exists when SARIF is enabled; the markdown
+          # report is always the audit record.
           path: |
-            skillspector.sarif
             skillspector.md
+            skillspector.sarif
           retention-days: 90
           if-no-files-found: error   # the report is the audit record; absence is a failure
 
       - name: Enforce policy
+        # `always()` so that a failure in the artifact step above cannot swallow
+        # the real reason the job failed. Without it a scanner error surfaced to
+        # the developer as "no files found" from an upload action.
+        if: always()
         env:
           CODE: ${{ steps.scan.outputs.exit_code }}
           PLUGIN: ${{ matrix.plugin }}
         run: |
           set -euo pipefail
-          case "$CODE" in
+          case "${CODE:-}" in
             0) echo "PASS: ${PLUGIN} scored SAFE or CAUTION (risk_score <= 50)." ;;
-            1) echo "::error title=Skill scan blocked::${PLUGIN} scored DO_NOT_INSTALL (risk_score > 50). See Security -> Code scanning."
+            1) echo "::error title=Skill scan blocked::${PLUGIN} scored DO_NOT_INSTALL (risk_score > 50). See the job summary or the skillspector-${PLUGIN} artifact."
                exit 1 ;;
-            *) echo "::error title=Skill scan errored::SkillSpector exited ${CODE} on ${PLUGIN}. Failing closed."
+            # Includes the empty case: if the scan step never set an exit code it
+            # did not complete, and an unscanned plugin is not a passing plugin.
+            *) echo "::error title=Skill scan errored::SkillSpector exited '${CODE:-<none>}' on ${PLUGIN}. Failing closed."
                exit 1 ;;
           esac
 
@@ -276,25 +431,37 @@ jobs:
     # would silently not cover a newly added plugin. This job's name never
     # changes, so it covers every plugin for all time.
     #
+    # Because the workflow has no `paths:` filter, this check reports on EVERY
+    # pull request, which is what makes it safe to mark required.
+    #
     # Scanner health is checked by scanner-health.yml, deliberately off the PR
     # path: it validates the tool, not the change, and would otherwise put a
-    # check about a fake malicious plugin on every unrelated PR.
+    # check about a fake malicious plugin on every unrelated PR. It is therefore
+    # NOT one of this job's dependencies.
     name: Gate
-    needs: [discover, scan]
+    needs: [discover, validate, scan]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Require every scan and the self-test to have passed
+      - name: Require discovery, format validation and every plugin scan to have passed
         env:
           DISCOVER: ${{ needs.discover.result }}
+          VALIDATE: ${{ needs.validate.result }}
           SCAN: ${{ needs.scan.result }}
         run: |
           set -euo pipefail
-          echo "discover=$DISCOVER  scan=$SCAN"
+          echo "discover=$DISCOVER  validate=$VALIDATE  scan=$SCAN"
 
           fail=0
           [ "$DISCOVER" = "success" ] || { echo "::error::discover did not succeed ($DISCOVER)"; fail=1; }
-          # 'skipped' is legitimate: a PR touching no plugin has nothing to scan.
+          # 'skipped' is legitimate for both: a PR touching no plugin has nothing
+          # to validate and nothing to scan. `discover` having succeeded is what
+          # makes that trustworthy - it fails closed rather than reporting an
+          # empty set it could not compute.
+          case "$VALIDATE" in
+            success|skipped) ;;
+            *) echo "::error::skill format validation did not pass ($VALIDATE)"; fail=1 ;;
+          esac
           case "$SCAN" in
             success|skipped) ;;
             *) echo "::error::one or more plugin scans did not pass ($SCAN)"; fail=1 ;;

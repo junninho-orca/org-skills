@@ -18,7 +18,7 @@ Reconstruct what happened, in order, with a source for every line.
 1. Establish the window. Ask for the first alert time and the resolution time if you do not have them. Work in UTC throughout and label it.
 2. Collect events from each available source, keeping the source name attached to every event:
    - alert firing and clearing times
-   - deploys and config/flag changes in the window (extend the search 2 hours before the first alert — the trigger usually predates the symptom)
+   - deploys and config/flag changes in the window — `git log --since=<start> --until=<end>` over the service and config repos, plus the deploy log (extend the search 2 hours before the first alert — the trigger usually predates the symptom)
    - error-rate and latency inflection points
    - human actions from the incident channel
 3. Merge into one ordered list.
