@@ -17,8 +17,11 @@ likely malicious intent.** An org marketplace without a gate inherits that rate.
 - Packaging skills to the vendor-neutral [Agent Plugins 1.0.0](https://agent-plugins.org/specification)
   spec, with a Claude Code [`marketplace.json`](.claude-plugin/marketplace.json) layered on top
 - A CI gate that scans every changed plugin and **blocks on risk score > 50**
+- A separate **format gate** running the Agent Skills spec's own reference validator, so a
+  malformed `SKILL.md` cannot scan clean and then fail at install time on every machine
 - **Failing closed** — a scanner error blocks too; an unscannable plugin is not a passing plugin
-- Findings as SARIF 2.1.0 in the GitHub Security tab, one category per plugin
+- Findings in the job summary and a 90-day artifact on every run, with optional SARIF 2.1.0
+  upload to the GitHub Security tab for repos entitled to code scanning
 - A scheduled **scanner health check** proving the scanner still detects malicious skills at all,
   kept off the PR path so it does not clutter every developer's checks
 - Auto-merge that arms on a pass but still waits on human review
@@ -39,24 +42,30 @@ Ships two example plugins: `dev-workflow` (PR descriptions, release notes) and `
 ## The gate
 
 ```
-PR touches plugins/**
+Any PR  (no path filter - a required check must report on every PR)
         |
         v
-  discover changed plugins  ──►  one scan job per plugin
-                                      |
-                    ┌─────────────────┼─────────────────┐
-                    v                 v                 v
-              exit 0 (≤50)      exit 1 (>50)      exit 2 (error)
-                 PASS           DO_NOT_INSTALL      fail closed
-                    |                 |                 |
-                    v                 └────── BLOCKED ──┘
-          SARIF ─► code scanning
-                    |
-                    v
-             Gate (required check)
-                    |
-                    v
-          arm auto-merge  ──►  still waits on CODEOWNERS + branch protection
+  discover changed plugins ──── none changed ─────────────┐
+        |                                                 |
+        ├──────────────────────────┐                      |
+        v                          v                      |
+  validate format            scan each plugin             |
+  (agentskills)              (SkillSpector)               |
+        |                          |                      |
+  invalid -> BLOCKED     >50 or scanner error -> BLOCKED  |
+        |                          |                      |
+        └────────────┬─────────────┘                      |
+                     v                                    |
+                 both pass ◄──────────────────────────────┘
+                     |
+                     v
+          Gate  (the required check)
+                     |
+                     v
+     arm auto-merge ──►  still waits on CODEOWNERS + branch protection
+
+Every scan writes a job summary and a 90-day artifact.
+SARIF upload to code scanning is opt-in: SKILLSPECTOR_UPLOAD_SARIF.
 ```
 
 ### Scanner health, off the PR path
@@ -121,7 +130,7 @@ credentials of any kind.
 │   │   └── skills/<name>/SKILL.md
 │   └── incident-response/            # + mcp.json for an MCP server
 ├── tests/fixtures/known-bad/         # deliberately malicious; proves the gate blocks
-├── .github/workflows/skill-scan.yml  # scan → SARIF → Gate → auto-merge
+├── .github/workflows/skill-scan.yml  # validate + scan → Gate → auto-merge
 ├── docs/
 │   ├── skill-policy.md               # thresholds, providers, suppressions
 │   ├── CONTRIBUTING.md               # how to add a plugin
@@ -130,7 +139,9 @@ credentials of any kind.
 ```
 
 Two specs are in play: [Agent Plugins 1.0.0](https://agent-plugins.org/specification) for the
-package, and [Agent Skills](https://agentskills.io/specification) for each `SKILL.md`.
+package, and [Agent Skills](https://agentskills.io/specification) for each `SKILL.md`. Conformance
+to the second is enforced in CI by that spec's own reference validator, `skills-ref`, so "valid"
+means what agentskills.io says it means rather than what this repo assumes.
 
 ## Adopting this for your own org
 
@@ -159,19 +170,30 @@ Then, by hand:
 
 1. **Replace the example plugins** under `plugins/` with your own, and update
    [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) to match.
-2. **Optional: enable semantic analysis.** Static analysis is the default and needs no credentials.
+2. **Optional: enable code scanning upload.** Off by default — SARIF upload needs GitHub
+   Advanced Security on a private repo, and would only return `403` without it. Findings are in
+   the job summary and the retained artifact either way.
+   ```bash
+   gh variable set SKILLSPECTOR_UPLOAD_SARIF --body true
+   ```
+3. **Optional: enable semantic analysis.** Static analysis is the default and needs no credentials.
    Adding an LLM catches description-vs-behavior mismatch, which pattern matching cannot. The
    workflow passes every SkillSpector provider's credentials through, so choosing one is a
    repository-settings change, not a workflow edit. Gemini, OpenAI, Anthropic, Azure, Bedrock
    (OIDC, no stored key), NVIDIA Build, and self-hosted Ollama are all supported. Matrix in
    [docs/skill-policy.md](docs/skill-policy.md).
-3. **Keep [`tests/fixtures/known-bad/`](tests/fixtures/)** — it is what tells you the gate still
+4. **Keep [`tests/fixtures/known-bad/`](tests/fixtures/)** — it is what tells you the gate still
    works. Everything else here is replaceable; that is not.
 
 > [!IMPORTANT]
 > Require the **`Gate`** check, never the individual `Scan <plugin>` checks. Those are matrix jobs
 > whose names change with the plugin set, so requiring them by name means a newly added plugin
 > produces an unrequired check and merges ungated. `Gate` has a stable name and covers all of them.
+>
+> This is also why [`skill-scan.yml`](.github/workflows/skill-scan.yml) has **no `paths:` filter**.
+> A workflow skipped by path filtering never reports its checks — GitHub leaves them *Expected*
+> and the pull request can never merge. A required check must run on every PR, so the workflow
+> runs always and short-circuits internally when no plugin changed.
 
 ## What the gate does not cover
 

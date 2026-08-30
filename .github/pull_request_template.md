@@ -19,4 +19,4 @@ The scanner covers AST01–04, AST08–10. These are the parts it cannot judge:
 
 ## Scan
 
-<!-- Leave blank; CI fills Security -> Code scanning. Note any baseline suppression + reason here. -->
+<!-- Leave blank; CI posts findings to the job summary and the run artifact. Note any baseline suppression + reason here. -->

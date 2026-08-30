@@ -2,7 +2,7 @@
 name: release-notes
 description: Drafts user-facing release notes for a version range by reading merged commits and PR titles between two git tags. Use when cutting a release, preparing a changelog, or when asked "what shipped since v1.2.0".
 license: Apache-2.0
-allowed-tools: Bash(git log:*) Bash(git tag:*) Bash(git describe:*) Read
+allowed-tools: Bash(git log:*) Bash(git describe:*) Read
 metadata:
   org.example.owner: platform-team
   org.example.review-tier: standard
